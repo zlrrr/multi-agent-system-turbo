@@ -25,14 +25,14 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T010 | `internal/tool`: `Tool`, `Schema`, `Registry`, guarded `Invoker` | FR-006 | `TestInvokerValidatesArgs`, `TestGuardRefusalBecomesGap`, `TestTimeoutBecomesCeilingCode` | T006 | todo |
-| T011 | Structural safety tests: `TestNoUnguardedIO`, no `sh -c` in tree | NFR-003 | both tests green | T010 | todo |
-| T012 | `collector/promql` client + 3 tools [P] | FR-003 | `TestInstant`, `TestRange`, `TestSeries`, `TestAuthHeaders`, `TestTruncation`, `TestErrorMapping` | T010 | todo |
-| T013 | `collector/loki` client + 2 tools [P] | FR-004 | `TestQuery`, `TestLimit`, `TestLabels`, `TestErrorMapping` | T010 | todo |
-| T014 | `envadapter/kube` read-only REST client + 5 tools [P] | FR-005 | `TestListPods`, `TestPodLogs`, `TestEvents`, `TestNodes`, `TestAuthModes`, `TestKubeClientHasNoMutatingMethods` | T010 | todo |
-| T015 | `envadapter/local` host inspection + 4 tools [P] | FR-021 | `TestProcesses`, `TestPorts`, `TestInspectAllowListed`, `TestInspectRefusesMutating` | T010 | todo |
-| T016 | `internal/source` fetch with network→local fallback + search + 2 tools | FR-022, FR-023 | `TestFallbackOnUnreachable`, `TestNoMirrorGap`, `TestCacheHitSkipsNetwork`, `TestSearchFixture` | T010 | todo |
-| **G-B** | **Gate B** | | `go test ./internal/tool/... ./internal/collector/... ./internal/envadapter/... ./internal/source/...` green | | todo |
+| T010 | `internal/tool`: `Tool`, `Schema`, `Registry`, guarded `Invoker` | FR-006 | `TestInvokerValidatesArgs`, `TestGuardRefusalBecomesGap`, `TestTimeoutBecomesCeilingCode` | T006 | done |
+| T011 | Structural safety tests: `TestNoUnguardedIO`, no `sh -c` in tree | NFR-003 | both tests green | T010 | done |
+| T012 | `collector/promql` client + 3 tools [P] | FR-003 | `TestInstant`, `TestRange`, `TestSeries`, `TestAuthHeaders`, `TestTruncation`, `TestErrorMapping` | T010 | done |
+| T013 | `collector/loki` client + 2 tools [P] | FR-004 | `TestQuery`, `TestLimit`, `TestLabels`, `TestErrorMapping` | T010 | done |
+| T014 | `envadapter/kube` read-only REST client + 5 tools [P] | FR-005 | `TestListPods`, `TestPodLogs`, `TestEvents`, `TestNodes`, `TestAuthModes`, `TestKubeClientHasNoMutatingMethods` | T010 | done |
+| T015 | `envadapter/local` host inspection + 4 tools [P] | FR-021 | `TestProcesses`, `TestPorts`, `TestInspectAllowListed`, `TestInspectRefusesMutating` | T010 | done |
+| T016 | `internal/source` fetch with network→local fallback + search + 2 tools | FR-022, FR-023 | `TestFallbackOnUnreachable`, `TestNoMirrorGap`, `TestCacheHitSkipsNetwork`, `TestSearchFixture` | T010 | done |
+| **G-B** | **Gate B** | | `go test ./internal/tool/... ./internal/collector/... ./internal/envadapter/... ./internal/source/...` green | | done |
 
 ## Phase C — Knowledge & rules
 

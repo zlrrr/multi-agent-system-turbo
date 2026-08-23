@@ -25,14 +25,14 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| T010 | `internal/tool`：`Tool`、`Schema`、`Registry`、受守卫的 `Invoker` | FR-006 | `TestInvokerValidatesArgs`、`TestGuardRefusalBecomesGap`、`TestTimeoutBecomesCeilingCode` | T006 | todo |
-| T011 | 结构性安全测试：`TestNoUnguardedIO`、代码树中不存在 `sh -c` | NFR-003 | 两项测试全绿 | T010 | todo |
-| T012 | `collector/promql` 客户端 + 3 个工具 [P] | FR-003 | `TestInstant`、`TestRange`、`TestSeries`、`TestAuthHeaders`、`TestTruncation`、`TestErrorMapping` | T010 | todo |
-| T013 | `collector/loki` 客户端 + 2 个工具 [P] | FR-004 | `TestQuery`、`TestLimit`、`TestLabels`、`TestErrorMapping` | T010 | todo |
-| T014 | `envadapter/kube` 只读 REST 客户端 + 5 个工具 [P] | FR-005 | `TestListPods`、`TestPodLogs`、`TestEvents`、`TestNodes`、`TestAuthModes`、`TestKubeClientHasNoMutatingMethods` | T010 | todo |
-| T015 | `envadapter/local` 主机巡检 + 4 个工具 [P] | FR-021 | `TestProcesses`、`TestPorts`、`TestInspectAllowListed`、`TestInspectRefusesMutating` | T010 | todo |
-| T016 | `internal/source` 网络→本地回退获取 + 检索 + 2 个工具 | FR-022、FR-023 | `TestFallbackOnUnreachable`、`TestNoMirrorGap`、`TestCacheHitSkipsNetwork`、`TestSearchFixture` | T010 | todo |
-| **G-B** | **闸门 B** | | `go test ./internal/tool/... ./internal/collector/... ./internal/envadapter/... ./internal/source/...` 全绿 | | todo |
+| T010 | `internal/tool`：`Tool`、`Schema`、`Registry`、受守卫的 `Invoker` | FR-006 | `TestInvokerValidatesArgs`、`TestGuardRefusalBecomesGap`、`TestTimeoutBecomesCeilingCode` | T006 | done |
+| T011 | 结构性安全测试：`TestNoUnguardedIO`、代码树中不存在 `sh -c` | NFR-003 | 两项测试全绿 | T010 | done |
+| T012 | `collector/promql` 客户端 + 3 个工具 [P] | FR-003 | `TestInstant`、`TestRange`、`TestSeries`、`TestAuthHeaders`、`TestTruncation`、`TestErrorMapping` | T010 | done |
+| T013 | `collector/loki` 客户端 + 2 个工具 [P] | FR-004 | `TestQuery`、`TestLimit`、`TestLabels`、`TestErrorMapping` | T010 | done |
+| T014 | `envadapter/kube` 只读 REST 客户端 + 5 个工具 [P] | FR-005 | `TestListPods`、`TestPodLogs`、`TestEvents`、`TestNodes`、`TestAuthModes`、`TestKubeClientHasNoMutatingMethods` | T010 | done |
+| T015 | `envadapter/local` 主机巡检 + 4 个工具 [P] | FR-021 | `TestProcesses`、`TestPorts`、`TestInspectAllowListed`、`TestInspectRefusesMutating` | T010 | done |
+| T016 | `internal/source` 网络→本地回退获取 + 检索 + 2 个工具 | FR-022、FR-023 | `TestFallbackOnUnreachable`、`TestNoMirrorGap`、`TestCacheHitSkipsNetwork`、`TestSearchFixture` | T010 | done |
+| **G-B** | **闸门 B** | | `go test ./internal/tool/... ./internal/collector/... ./internal/envadapter/... ./internal/source/...` 全绿 | | done |
 
 ## 阶段 C —— 知识与规则
 

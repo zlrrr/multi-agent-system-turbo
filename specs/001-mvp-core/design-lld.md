@@ -1,6 +1,6 @@
 # Low-Level Design (LLD): MVP Core
 
-> **Feature ID**: `001-mvp-core` · **Version**: 1.0.0 · **Status**: approved
+> **Feature ID**: `001-mvp-core` · **Version**: 1.0.1 · **Status**: approved
 > **Bilingual pair**: [`design-lld.zh.md`](./design-lld.zh.md) · **Upstream**: [`design-hld.md`](./design-hld.md) v1.0.0 · **Downstream**: [`tasks.md`](./tasks.md), code
 
 Module path: `github.com/zlrrr/multi-agent-system-turbo`
@@ -390,10 +390,16 @@ func (c *Client) ListNodes(ctx) ([]Node, error)
 func (c *Client) ListWorkloads(ctx, ns string) ([]Workload, error)
 ```
 
-Auth modes: in-cluster service-account token; kubeconfig with bearer token, client
-certificate, or an `exec` credential plugin (the plugin is itself run through the guard's
-command allow-list). Every request is `GET`; the client has no method that issues any other
-verb — a structural, not procedural, guarantee.
+Auth modes: in-cluster service-account token; kubeconfig with bearer token, token file,
+client certificate, or basic auth. Every request is `GET`; the client has no method that
+issues any other verb — a structural, not procedural, guarantee.
+
+**`exec` credential plugins are deliberately unsupported.** Honouring `users[].user.exec`
+means executing an arbitrary binary named by a configuration file, which is precisely what the
+deny-by-default command allow-list exists to prevent (Art. IV.2). The client refuses such a
+kubeconfig with `MAS-4202` and names the alternative — supply a read-only service-account
+token — rather than failing opaquely. Re-admitting exec plugins would require a specification
+change with an explicit trust argument, not a code change.
 
 `local` implements read-only host inspection: process listing, listening sockets, resource
 usage, and allow-listed middleware inspection commands declared by knowledge packs.
@@ -757,4 +763,5 @@ Allocation blocks are HLD §7.1; specific codes are listed per package in §2 ab
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.0.1 | 2026-08-23 | §2.9: `exec` credential plugins recorded as deliberately unsupported, with the trust argument and the operator-facing alternative | `tasks.md` re-reviewed, unchanged; `plan.md` RSK-001 mitigation narrowed |
 | 1.0.0 | 2026-08-23 | Initial low-level design | `tasks.md`, code |

@@ -99,7 +99,7 @@ Order is a strict dependency chain except that C and D may proceed in parallel o
 
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| RSK-001 | Hand-rolled Kubernetes client mishandles auth (exec plugins, client certs) | Medium | High | Support SA token, client cert, bearer token, exec plugin; `mas doctor` probes and reports precisely; each auth mode unit-tested |
+| RSK-001 | Hand-rolled Kubernetes client mishandles auth (client certs, token files) | Medium | High | Support SA token, kubeconfig bearer token, token file, client certificate and basic auth, each unit-tested; refuse `exec` credential plugins explicitly with the alternative named (`design-lld.md` §2.9); `mas doctor` probes and reports which credential source was used |
 | RSK-002 | LLM produces unparseable tool calls, stalling a run | Medium | Medium | Strict schema validation, bounded repair retries, then deterministic fallback to playbook-only conclusions |
 | RSK-003 | Agent loops burn tokens without converging | Medium | Medium | Hard ceilings: max steps, max tool calls, max wall clock, max tokens; exceeded ⇒ report what was found with an explicit truncation notice |
 | RSK-004 | Safety guard has a bypass | Low | Critical | Single choke point; deny-by-default; adversarial test suite; guard cannot be disabled by config |

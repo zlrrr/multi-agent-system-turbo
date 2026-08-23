@@ -95,7 +95,7 @@ Python sidecar，而不是重写内核。拓扑注册表正是让这件事无需
 
 | ID | 风险 | 可能性 | 影响 | 缓解措施 |
 |---|---|---|---|---|
-| RSK-001 | 自研 Kubernetes 客户端处理鉴权（exec 插件、客户端证书）有误 | 中 | 高 | 支持 SA token、客户端证书、bearer token、exec 插件；`mas doctor` 精确探测并报告；每种鉴权方式均有单测 |
+| RSK-001 | 自研 Kubernetes 客户端处理鉴权（客户端证书、token 文件）有误 | 中 | 高 | 支持 SA token、kubeconfig bearer token、token 文件、客户端证书与 basic auth，每种均有单测；对 `exec` 凭据插件显式拒绝并给出替代方案（`design-lld.zh.md` §2.9）；`mas doctor` 探测并报告实际使用的凭据来源 |
 | RSK-002 | LLM 产出无法解析的工具调用，导致运行卡死 | 中 | 中 | 严格 Schema 校验、有界修复重试，其后确定性回退到仅剧本结论 |
 | RSK-003 | Agent 循环空耗 token 而不收敛 | 中 | 中 | 硬性上限：最大步数、最大工具调用数、最大墙钟、最大 token；超限则输出已获结论并显式标注截断 |
 | RSK-004 | 安全守卫存在绕过路径 | 低 | 严重 | 单一收口点；默认拒绝；对抗性测试套件；守卫不可被配置关闭 |

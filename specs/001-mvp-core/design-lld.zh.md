@@ -1,6 +1,6 @@
 # 详细设计（LLD）：MVP 内核
 
-> **特性 ID**：`001-mvp-core` · **版本**：1.0.0 · **状态**：已批准
+> **特性 ID**：`001-mvp-core` · **版本**：1.0.1 · **状态**：已批准
 > **双语对应文件**：[`design-lld.md`](./design-lld.md) · **上游**：[`design-hld.zh.md`](./design-hld.zh.md) v1.0.0 · **下游**：[`tasks.zh.md`](./tasks.zh.md)、代码
 
 模块路径：`github.com/zlrrr/multi-agent-system-turbo`
@@ -386,9 +386,14 @@ func (c *Client) ListNodes(ctx) ([]Node, error)
 func (c *Client) ListWorkloads(ctx, ns string) ([]Workload, error)
 ```
 
-鉴权方式：集群内 ServiceAccount token；kubeconfig 的 bearer token、客户端证书，或 `exec` 凭据
-插件（该插件本身也要经过守卫的命令白名单）。每个请求都是 `GET`；客户端不存在任何发出其他动词的
-方法 —— 这是结构性保证，而非流程性保证。
+鉴权方式：集群内 ServiceAccount token；kubeconfig 的 bearer token、token 文件、客户端证书或
+basic auth。每个请求都是 `GET`；客户端不存在任何发出其他动词的方法 —— 这是结构性保证，而非流程性
+保证。
+
+**`exec` 凭据插件被刻意排除。** 支持 `users[].user.exec` 意味着执行由配置文件指定的任意二进制，
+而这恰恰是默认拒绝的命令白名单要防止的事情（第四条 IV.2）。客户端会以 `MAS-4202` 拒绝这类
+kubeconfig，并指出替代方案 —— 提供只读 ServiceAccount token —— 而不是含糊地失败。若要重新接纳
+exec 插件，需要的是一次带明确信任论证的规格变更，而不是一次代码修改。
 
 `local` 实现本地主机只读巡检：进程列表、监听套接字、资源占用，以及知识包声明的白名单中间件巡检
 命令。
@@ -748,4 +753,5 @@ safety: { extra_denied_args: [], max_response_bytes: 8388608, max_timeout: 120s 
 
 | 版本 | 日期 | 变更 | 影响 |
 |---|---|---|---|
+| 1.0.1 | 2026-08-23 | §2.9：将 `exec` 凭据插件记录为刻意不支持，并给出信任论证与面向运维的替代方案 | `tasks.zh.md` 已复审，无变更；`plan.zh.md` RSK-001 缓解措施收窄 |
 | 1.0.0 | 2026-08-23 | 初版详细设计 | `tasks.zh.md`、代码 |

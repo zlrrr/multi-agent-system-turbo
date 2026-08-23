@@ -26,11 +26,12 @@ artifacts:
     derived_from_version: 1.0.0
   - id: lld
     path: design-lld.md
-    version: 1.0.0
+    version: 1.0.1
     upstream: hld
     derived_from_version: 1.0.0
   - id: tasks
+    # Re-reviewed against lld 1.0.1: the exec-plugin decision changes no task.
     path: tasks.md
     version: 1.0.0
     upstream: lld
-    derived_from_version: 1.0.0
+    derived_from_version: 1.0.1
