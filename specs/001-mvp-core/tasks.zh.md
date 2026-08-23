@@ -12,14 +12,14 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| T001 | Go 模块、`Makefile`、`.golangci.yml`、`internal/version` | — | `make build` 产出 `mas`；`mas version` 打印构建信息 | — | todo |
-| T002 | `pkg/errs`：注册表、`Error`、查询、双语定义 | FR-017 | `TestRegistryUnique`、`TestAllCodesRegistered`、`TestBilingualComplete`、`TestCodeOfThroughWrap` | T001 | todo |
-| T003 | `internal/core`：领域模型 + 不变量 + JSON 往返 | FR-011、FR-012 | `TestReportRoundTrip`、`TestInvariants`、`TestNoUpwardImports` | T002 | todo |
-| T004 | `internal/config`：模型、加载/合并优先级、`Secret`、校验 | FR-001、FR-016 | `TestPrecedence`、`TestValidateCodes`、`TestSecretNeverSerialises`、`TestResolveRefs` | T002 | todo |
-| T005 | `internal/safety`：`Redactor` | FR-016 | `TestRedactPatterns`、`TestRedactNestedAny` | T004 | todo |
-| T006 | `internal/safety`：`Guard` —— 六道检查、默认拒绝 | FR-006、CON-001、CON-002 | `TestGuardAdversarial`（≥30 条恶意输入）、`TestGuardCannotBeWidened` | T005 | todo |
-| T007 | `internal/obs`：slog 初始化、脱敏 handler、运行上下文、自身指标 | FR-017、G11.4 | `TestRunIDPropagates`、`TestHandlerRedacts`、`TestPromExposition` | T005 | todo |
-| **G-A** | **闸门 A** | | `go test ./pkg/... ./internal/errs/... ./internal/core/... ./internal/config/... ./internal/safety/... ./internal/obs/...` 全绿 | | todo |
+| T001 | Go 模块、`Makefile`、`.golangci.yml`、`internal/version` | — | `make build` 产出 `mas`；`mas version` 打印构建信息 | — | done |
+| T002 | `pkg/errs`：注册表、`Error`、查询、双语定义 | FR-017 | `TestRegistryUnique`、`TestAllCodesRegistered`、`TestBilingualComplete`、`TestCodeOfThroughWrap` | T001 | done |
+| T003 | `internal/core`：领域模型 + 不变量 + JSON 往返 | FR-011、FR-012 | `TestReportRoundTrip`、`TestInvariants`、`TestNoUpwardImports` | T002 | done |
+| T004 | `internal/config`：模型、加载/合并优先级、`Secret`、校验 | FR-001、FR-016 | `TestPrecedence`、`TestValidateCodes`、`TestSecretNeverSerialises`、`TestResolveRefs` | T002 | done |
+| T005 | `internal/safety`：`Redactor` | FR-016 | `TestRedactPatterns`、`TestRedactNestedAny` | T004 | done |
+| T006 | `internal/safety`：`Guard` —— 六道检查、默认拒绝 | FR-006、CON-001、CON-002 | `TestGuardAdversarial`（≥30 条恶意输入）、`TestGuardCannotBeWidened` | T005 | done |
+| T007 | `internal/obs`：slog 初始化、脱敏 handler、运行上下文、自身指标 | FR-017、G11.4 | `TestRunIDPropagates`、`TestHandlerRedacts`、`TestPromExposition` | T005 | done |
+| **G-A** | **闸门 A** | | `go test ./pkg/... ./internal/errs/... ./internal/core/... ./internal/config/... ./internal/safety/... ./internal/obs/...` 全绿 | | done |
 
 ## 阶段 B —— 能力层
 

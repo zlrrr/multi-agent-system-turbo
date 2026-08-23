@@ -12,14 +12,14 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T001 | Go module, `Makefile`, `.golangci.yml`, `internal/version` | — | `make build` produces `mas`; `mas version` prints build info | — | todo |
-| T002 | `pkg/errs`: registry, `Error`, lookup, bilingual definitions | FR-017 | `TestRegistryUnique`, `TestAllCodesRegistered`, `TestBilingualComplete`, `TestCodeOfThroughWrap` | T001 | todo |
-| T003 | `internal/core`: domain model + invariants + JSON round-trip | FR-011, FR-012 | `TestReportRoundTrip`, `TestInvariants`, `TestNoUpwardImports` | T002 | todo |
-| T004 | `internal/config`: model, load/merge precedence, `Secret`, validation | FR-001, FR-016 | `TestPrecedence`, `TestValidateCodes`, `TestSecretNeverSerialises`, `TestResolveRefs` | T002 | todo |
-| T005 | `internal/safety`: `Redactor` | FR-016 | `TestRedactPatterns`, `TestRedactNestedAny` | T004 | todo |
-| T006 | `internal/safety`: `Guard` — six checks, deny-by-default | FR-006, CON-001, CON-002 | `TestGuardAdversarial` (≥30 hostile inputs), `TestGuardCannotBeWidened` | T005 | todo |
-| T007 | `internal/obs`: slog setup, redacting handler, run context, self-metrics | FR-017, G11.4 | `TestRunIDPropagates`, `TestHandlerRedacts`, `TestPromExposition` | T005 | todo |
-| **G-A** | **Gate A** | | `go test ./pkg/... ./internal/errs/... ./internal/core/... ./internal/config/... ./internal/safety/... ./internal/obs/...` green | | todo |
+| T001 | Go module, `Makefile`, `.golangci.yml`, `internal/version` | — | `make build` produces `mas`; `mas version` prints build info | — | done |
+| T002 | `pkg/errs`: registry, `Error`, lookup, bilingual definitions | FR-017 | `TestRegistryUnique`, `TestAllCodesRegistered`, `TestBilingualComplete`, `TestCodeOfThroughWrap` | T001 | done |
+| T003 | `internal/core`: domain model + invariants + JSON round-trip | FR-011, FR-012 | `TestReportRoundTrip`, `TestInvariants`, `TestNoUpwardImports` | T002 | done |
+| T004 | `internal/config`: model, load/merge precedence, `Secret`, validation | FR-001, FR-016 | `TestPrecedence`, `TestValidateCodes`, `TestSecretNeverSerialises`, `TestResolveRefs` | T002 | done |
+| T005 | `internal/safety`: `Redactor` | FR-016 | `TestRedactPatterns`, `TestRedactNestedAny` | T004 | done |
+| T006 | `internal/safety`: `Guard` — six checks, deny-by-default | FR-006, CON-001, CON-002 | `TestGuardAdversarial` (≥30 hostile inputs), `TestGuardCannotBeWidened` | T005 | done |
+| T007 | `internal/obs`: slog setup, redacting handler, run context, self-metrics | FR-017, G11.4 | `TestRunIDPropagates`, `TestHandlerRedacts`, `TestPromExposition` | T005 | done |
+| **G-A** | **Gate A** | | `go test ./pkg/... ./internal/errs/... ./internal/core/... ./internal/config/... ./internal/safety/... ./internal/obs/...` green | | done |
 
 ## Phase B — Capability layer
 
