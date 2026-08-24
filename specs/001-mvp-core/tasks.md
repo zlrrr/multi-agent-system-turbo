@@ -62,11 +62,11 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T040 | `internal/report`: Markdown (en/zh) + JSON renderers | FR-011 | golden-file tests for all four outputs | T003 | todo |
-| T041 | `internal/store`: `RunStore`, `fs`, `memory` | FR-012 | `TestFSRoundTrip`, `TestAppendOnly`, `TestCorruptDetected`, `TestList` | T003 | todo |
-| T042 | `internal/service`: admission, two-phase pipeline, short-circuit, degradation, accounting | FR-001, FR-002, FR-008, FR-013, FR-019 | `TestAdmissionCodes`, `TestShortCircuit`, `TestAllSourcesDownStillCompletes`, `TestEndToEndUnder5s`, `TestDeterminism` | T023, T037, T041 | todo |
-| T043 | Replay | FR-012 | `TestReplayWithoutNetwork` | T042 | todo |
-| **G-E** | **Gate E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` green | | todo |
+| T040 | `internal/report`: Markdown (en/zh) + JSON renderers | FR-011 | golden-file tests for all four outputs | T003 | done |
+| T041 | `internal/store`: `RunStore`, `fs`, `memory` | FR-012 | `TestFSRoundTrip`, `TestAppendOnly`, `TestCorruptDetected`, `TestList` | T003 | done |
+| T042 | `internal/service`: admission, two-phase pipeline, short-circuit, degradation, accounting | FR-001, FR-002, FR-008, FR-013, FR-019 | `TestAdmissionCodes`, `TestShortCircuit`, `TestAllSourcesDownStillCompletes`, `TestEndToEndUnder5s`, `TestDeterminism` | T023, T037, T041 | done |
+| T043 | Replay | FR-012 | `TestReplayWithoutNetwork` | T042 | done |
+| **G-E** | **Gate E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` green | | done |
 
 ## Phase F — Surfaces
 

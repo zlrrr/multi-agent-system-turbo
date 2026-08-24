@@ -62,11 +62,11 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| T040 | `internal/report`：Markdown（en/zh） + JSON 渲染器 | FR-011 | 四种输出的黄金文件测试 | T003 | todo |
-| T041 | `internal/store`：`RunStore`、`fs`、`memory` | FR-012 | `TestFSRoundTrip`、`TestAppendOnly`、`TestCorruptDetected`、`TestList` | T003 | todo |
-| T042 | `internal/service`：准入、两阶段流水线、短路、降级、统计 | FR-001、FR-002、FR-008、FR-013、FR-019 | `TestAdmissionCodes`、`TestShortCircuit`、`TestAllSourcesDownStillCompletes`、`TestEndToEndUnder5s`、`TestDeterminism` | T023、T037、T041 | todo |
-| T043 | 重放 | FR-012 | `TestReplayWithoutNetwork` | T042 | todo |
-| **G-E** | **闸门 E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` 全绿 | | todo |
+| T040 | `internal/report`：Markdown（en/zh） + JSON 渲染器 | FR-011 | 四种输出的黄金文件测试 | T003 | done |
+| T041 | `internal/store`：`RunStore`、`fs`、`memory` | FR-012 | `TestFSRoundTrip`、`TestAppendOnly`、`TestCorruptDetected`、`TestList` | T003 | done |
+| T042 | `internal/service`：准入、两阶段流水线、短路、降级、统计 | FR-001、FR-002、FR-008、FR-013、FR-019 | `TestAdmissionCodes`、`TestShortCircuit`、`TestAllSourcesDownStillCompletes`、`TestEndToEndUnder5s`、`TestDeterminism` | T023、T037、T041 | done |
+| T043 | 重放 | FR-012 | `TestReplayWithoutNetwork` | T042 | done |
+| **G-E** | **闸门 E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` 全绿 | | done |
 
 ## 阶段 F —— 操作面
 

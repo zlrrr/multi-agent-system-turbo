@@ -173,9 +173,6 @@ func recordLLMStep(ctx context.Context, s *State, opts loopOptions, resp llm.Res
 	obs.MetricsOf(ctx).AddCounter("mas_llm_tokens_total", float64(resp.Usage.CompletionTokens),
 		map[string]string{"provider": s.Provider.Name(), "direction": "completion"})
 
-	if s.Run == nil {
-		return
-	}
 	step := core.Step{
 		Kind: core.StepLLMCall, At: time.Now().UTC(), DurationMillis: d.Milliseconds(),
 		Actor: string(opts.role), Name: s.Provider.Name(),
@@ -188,6 +185,13 @@ func recordLLMStep(ctx context.Context, s *State, opts loopOptions, resp llm.Res
 	}
 	if err != nil {
 		step.Code, step.Err = errs.CodeOf(err), err.Error()
+	}
+	if s.Sink != nil {
+		s.Sink.AppendStep(ctx, step)
+		return
+	}
+	if s.Run == nil {
+		return
 	}
 	s.mu.Lock()
 	step.ID = fmt.Sprintf("llm-%d", len(s.Run.Steps)+1)

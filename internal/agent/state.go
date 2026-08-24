@@ -73,6 +73,11 @@ type State struct {
 	// MaxConcurrency caps how many investigators a topology may run at once.
 	MaxConcurrency int
 
+	// Sink persists steps as they happen. Model exchanges go through it for the
+	// same reason tool calls do: a run record that omits half the reasoning is
+	// not an audit trail (Constitution Art. V.3).
+	Sink tool.StepSink
+
 	mu              sync.Mutex
 	evidence        []core.Evidence
 	gaps            []core.Gap

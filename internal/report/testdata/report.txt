@@ -1,0 +1,14 @@
+Diagnostic report: redis-prod (run-20260823T110000-abcd1234)
+============================================================
+
+Summary
+Redis is at its configured memory ceiling. Eviction began before latency rose and the log shows write refusals in the same window, so memory pressure is the cause rather than a consequence.
+
+1. [supported by the evidence, 85%] Redis reached maxmemory; eviction could not free space fast enough.
+2. [refuted by the evidence, 5%] A single slow command blocked the event loop.
+
+Gaps in the evidence: 1
+
+Recommended next steps
+  1. [low] Confirm the eviction policy with CONFIG GET maxmemory-policy.
+  2. [medium] Raise maxmemory only if the host has headroom.

@@ -1,0 +1,141 @@
+{
+  "schema": "report/v1",
+  "run_id": "run-20260823T110000-abcd1234",
+  "generated_at": "2026-08-23T11:00:00Z",
+  "target": {
+    "id": "redis-prod",
+    "kind": "redis",
+    "version": "7.2.4",
+    "env": {
+      "name": "prod",
+      "type": "kubernetes",
+      "namespace": "middleware"
+    },
+    "endpoints": {}
+  },
+  "request": {
+    "target": "redis-prod",
+    "symptom": "p99 latency spike with evictions",
+    "window": {
+      "from": "2026-08-23T10:00:00Z",
+      "to": "2026-08-23T11:00:00Z"
+    },
+    "mode": "online",
+    "topology": "supervisor",
+    "budget": {
+      "max_steps": 0,
+      "max_tool_calls": 0,
+      "max_tokens": 0,
+      "max_wall": 0
+    },
+    "language": "en"
+  },
+  "topology": "supervisor",
+  "summary": "Redis is at its configured memory ceiling. Eviction began before latency rose and the log shows write refusals in the same window, so memory pressure is the cause rather than a consequence.",
+  "hypotheses": [
+    {
+      "id": "h-1",
+      "statement": "Redis reached maxmemory; eviction could not free space fast enough.",
+      "status": "supported",
+      "confidence": 0.85,
+      "supporting": [
+        "ev-1",
+        "ev-2"
+      ],
+      "rationale": "Used memory is above 90% of maxmemory and eviction precedes the latency rise.",
+      "rank": 1
+    },
+    {
+      "id": "h-2",
+      "statement": "A single slow command blocked the event loop.",
+      "status": "refuted",
+      "confidence": 0.05,
+      "contradicting": [
+        "ev-1"
+      ],
+      "rationale": "CPU stayed below saturation and no long fork pause was observed.",
+      "rank": 2
+    }
+  ],
+  "findings": [
+    {
+      "id": "f-1",
+      "origin": "rule:redis.memory-pressure/eval-pressure",
+      "severity": "critical",
+      "statement": "Used memory is above 90% of the configured maxmemory.",
+      "detail": "At this point Redis either evicts keys or refuses writes, depending on maxmemory-policy.",
+      "evidence": [
+        "ev-1"
+      ],
+      "confidence": 0.9
+    },
+    {
+      "id": "f-2",
+      "origin": "rule:redis.memory-pressure/eval-eviction",
+      "severity": "major",
+      "statement": "Keys are being evicted.",
+      "evidence": [
+        "ev-1"
+      ],
+      "confidence": 0.85
+    }
+  ],
+  "checks_passed": [
+    "The instance was reachable throughout the window.",
+    "No long fork pause was observed."
+  ],
+  "gaps": [
+    {
+      "id": "gap-1",
+      "intent": "kube.nodes()",
+      "reason": "refused",
+      "code": "MAS-4201",
+      "impact": "node-level memory pressure could not be ruled out"
+    }
+  ],
+  "recommendations": [
+    {
+      "statement": "Confirm the eviction policy with CONFIG GET maxmemory-policy.",
+      "risk": "low",
+      "rationale": "The policy decides whether clients see errors or silent data loss.",
+      "refs": [
+        "ev-1"
+      ],
+      "advisory": true
+    },
+    {
+      "statement": "Raise maxmemory only if the host has headroom.",
+      "risk": "medium",
+      "rationale": "Without headroom the kernel OOM killer replaces a degraded Redis with a dead one.",
+      "advisory": true
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "metric_series",
+      "source": "promql:primary",
+      "query": "redis_memory_used_bytes{instance=\"redis-0\"}",
+      "collected_at": "2026-08-23T11:00:00Z",
+      "summary": "redis_memory_used_bytes → last=1020 min=900 max=1020 avg=970 over 12 points",
+      "digest": "d1"
+    },
+    {
+      "id": "ev-2",
+      "kind": "log_lines",
+      "source": "loki:primary",
+      "query": "{job=\"redis\"} |= \"OOM\"",
+      "collected_at": "2026-08-23T11:00:00Z",
+      "summary": "{job=\"redis\"} |= \"OOM\" → 41 lines across 1 streams; newest at 2026-08-23T10:58:00Z: OOM command not allowed",
+      "digest": "d2"
+    }
+  ],
+  "usage": {
+    "llm_calls": 9,
+    "prompt_tokens": 12000,
+    "completion_tokens": 1800,
+    "tool_calls": 7,
+    "wall_millis": 4200
+  },
+  "truncated": false
+}
