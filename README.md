@@ -1,0 +1,150 @@
+# MAS-Turbo
+
+**A read-only diagnostic multi-agent system for open-source middleware.**
+
+[中文说明](./README.zh.md) · [User manual](./docs/en/user-manual.md) · [Configuration](./docs/en/configuration.md) · [Error codes](./docs/en/error-codes.md)
+
+---
+
+When a Redis cluster starts evicting keys or a Kafka consumer group falls behind,
+the first thirty minutes go into *assembling context*: opening Grafana, guessing
+the right PromQL, tailing pods, remembering which `INFO` field matters. The
+analysis — the part that needs expertise — starts only after that, usually under
+pressure, and usually not by the person who knows the system best.
+
+MAS-Turbo does the assembly, applies middleware-specific expert knowledge, shows
+its evidence, and tells you what it could not check.
+
+**It performs no action against the systems it inspects.** No restart, no
+configuration change, no `FLUSHALL`. A safety guard sits between every capability
+and the outside world, refuses anything not on a read-only allow-list, and has no
+setting that disables it.
+
+## Try it in one command
+
+```bash
+git clone https://github.com/zlrrr/multi-agent-system-turbo
+cd multi-agent-system-turbo
+make demo
+```
+
+No credentials, no cluster, no model API. Local stubs serve a coherent Redis
+memory-pressure scenario, and you get three reports: the deterministic
+short-circuit path, the full multi-agent investigation, and the same
+investigation in Chinese.
+
+## What a report looks like
+
+```markdown
+## Summary
+
+Redis is at its configured memory ceiling. Eviction began before latency rose and
+the log shows write refusals in the same window, so memory pressure is the cause
+rather than a consequence. The container was not OOM-killed: the limit being hit
+is Redis's own maxmemory.
+
+## Hypotheses
+
+### 1. Redis reached maxmemory; eviction could not free space fast enough.
+- **status**: supported by the evidence   - **confidence**: 85%
+- **Reasoning**: Three independent sources agree, and eviction preceding latency
+  rules out latency as the cause.
+- **Supporting**: ev-1, ev-2
+
+### 2. A single slow command blocked the event loop.
+- **status**: refuted by the evidence     - **confidence**: 5%
+- **Reasoning**: Contradicted by the CPU and fork evidence collected in this run.
+
+## Gaps in the evidence
+- **kube.nodes()** — refused by the safety guard (`MAS-4201`)
+  - Effect on this analysis: node-level memory pressure could not be ruled out
+```
+
+## How it works
+
+Two phases, and the order is the design.
+
+**Deterministic first.** Playbooks from the knowledge pack run with *no model in
+the loop*: collect → evaluate → conclude. If a rule settles the question with
+enough confidence, the run stops there — routine incidents cost nothing and
+return in under two seconds.
+
+**Agents only where rules are inconclusive.** A planner decides what is still
+unsettled; specialised investigators — one per evidence domain, concurrent —
+gather targeted evidence; a correlator ranks hypotheses; a critic challenges each
+against the evidence; a reporter writes it up. The critic matters: an explanation
+that has never been challenged is just the first one that came to mind.
+
+```
+request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ report
+                        │   (zero model calls)      │
+                        └─ agents, if inconclusive ─┘
+                              every tool call ─▶ safety guard ─▶ read-only allow-list
+```
+
+## What makes it trustworthy
+
+| Property | How it is guaranteed |
+|---|---|
+| Cannot mutate a target | One choke point every effect passes through; deny-by-default; no setting disables it. An adversarial suite tries FLUSHALL in every casing, argument injection, `pods/exec`, and pack-supplied commands — none arrive |
+| A missing measurement is never a healthy one | A check whose input failed to collect is *skipped* with a recorded gap, never evaluated as passing |
+| A source being down does not lose the analysis | Every failure becomes a gap with a code and a stated effect on confidence; the run completes |
+| Results are reproducible | Identical input produces an identical report, including under the concurrent topology |
+| Runs are auditable | Every tool call, model exchange and verdict is persisted with an integrity digest; replay reproduces the report with the network off |
+| Credentials never leak | Redaction at the log handler, not the call site; secrets cannot be printed in any format |
+
+## Coverage today
+
+| | Status |
+|---|---|
+| **Middleware** | Redis and Kafka knowledge packs ship; MongoDB, Pulsar, Milvus and OceanBase are pack-only work — the schema supports them and you can write your own now |
+| **Telemetry** | Prometheus, VictoriaMetrics, Thanos, Mimir; Loki |
+| **Environments** | Kubernetes (read-only API); local host |
+| **Source** | Network repository with automatic fallback to a local mirror, plus code search |
+| **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock |
+| **Topologies** | `supervisor` (default), `single` (control condition) |
+| **Interfaces** | CLI, HTTP API, container image |
+
+Deliberately not here yet: in-container command execution on Kubernetes, API
+authentication, a web UI. The [user manual](./docs/en/user-manual.md#14-what-is-deliberately-not-here-yet)
+says so plainly so you can plan around it.
+
+## Quick start
+
+```bash
+docker pull ghcr.io/zlrrr/multi-agent-system-turbo:latest
+
+# Validate configuration and probe every endpoint
+mas doctor
+
+# Diagnose
+mas diagnose --target redis-prod --symptom "p99 latency spike" --since 1h
+
+# Compare topologies on the same case
+mas diagnose -t redis-prod -s "latency spike" --topology single -f json -o single.json
+mas diagnose -t redis-prod -s "latency spike" --topology supervisor -f json -o supervisor.json
+```
+
+See the [user manual](./docs/en/user-manual.md) for configuration, RBAC, the API
+and knowledge-pack authoring.
+
+## Development
+
+```bash
+make build          # bin/mas and bin/sddctl
+make test           # the full suite; no test needs a network
+make ci             # what CI enforces: fmt, vet, lint, race tests, SDD checks, build
+make sdd-verify     # bilingual parity, cascade freshness, requirement coverage
+make docker         # container image
+```
+
+This project is built specification-first. The chain — goal → spec → plan →
+high-level design → low-level design → tasks → code — lives in
+[`specs/001-mvp-core/`](./specs/001-mvp-core/), and the rules it follows are in
+[`.specify/memory/constitution.md`](./.specify/memory/constitution.md). CI
+enforces them: every document exists in English and Chinese, no artifact may be
+derived from a stale upstream, and every requirement must be claimed by a task.
+
+## Licence
+
+Apache 2.0. See [LICENSE](./LICENSE).

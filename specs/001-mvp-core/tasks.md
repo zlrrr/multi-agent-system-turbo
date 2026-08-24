@@ -82,12 +82,12 @@ A task is `done` only when its test passes (Art. VI.2).
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
 | T060 | `cmd/sddctl`: bilingual parity, traceability staleness, requirement coverage | NFR-009, G13 | `TestParityDetectsMissingZH`, `TestStalenessDetected`, `TestCoverageGap`; `make sdd-verify` green | T001 | done |
-| T061 | Multi-stage `Dockerfile`, non-root, `docker-compose` example | FR-020, NFR-005 | image builds; `docker run … version` and `… diagnose` succeed | T050 | todo |
-| T062 | `.github/workflows/ci.yml`: fmt, vet, lint, test `-race`, build matrix, sdd-verify | Art. VIII.2 | workflow green | T060 | todo |
-| T063 | `.github/workflows/release.yml`: tag → binaries + checksums + image | FR-020, G12.2 | dry-run on a tag produces artifacts | T062 | todo |
-| T064 | Bilingual user manual, configuration reference, error-code reference, README, quickstart | G12.3, NFR-009 | `sddctl verify` parity green; manual walkthrough reproduces the demo | T050 | todo |
-| T065 | Example configs + demo fixtures (`examples/`) so a fresh user gets a report in one command | G12.1 | `make demo` produces a report | T064 | todo |
-| **G-G** | **Gate G — M1 exit** | | `make ci` green; image runs; release artifacts produced | | todo |
+| T061 | Multi-stage `Dockerfile`, non-root, `docker-compose` example | FR-020, NFR-005 | image builds; `docker run … version` and `… diagnose` succeed | T050 | done |
+| T062 | `.github/workflows/ci.yml`: fmt, vet, lint, test `-race`, build matrix, sdd-verify | Art. VIII.2 | workflow green | T060 | done |
+| T063 | `.github/workflows/release.yml`: tag → binaries + checksums + image | FR-020, G12.2 | dry-run on a tag produces artifacts | T062 | done |
+| T064 | Bilingual user manual, configuration reference, error-code reference, README, quickstart | G12.3, NFR-009 | `sddctl verify` parity green; manual walkthrough reproduces the demo | T050 | done |
+| T065 | Example configs + demo fixtures (`examples/`) so a fresh user gets a report in one command | G12.1 | `make demo` produces a report | T064 | done |
+| **G-G** | **Gate G — M1 exit** | | `make ci` green; image runs; release artifacts produced | | done |
 
 ## Checkpoint gates
 

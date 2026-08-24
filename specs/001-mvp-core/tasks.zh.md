@@ -82,12 +82,12 @@
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
 | T060 | `cmd/sddctl`：双语对等、可追溯陈旧检测、需求覆盖 | NFR-009、G13 | `TestParityDetectsMissingZH`、`TestStalenessDetected`、`TestCoverageGap`；`make sdd-verify` 全绿 | T001 | done |
-| T061 | 多阶段 `Dockerfile`、非 root、`docker-compose` 示例 | FR-020、NFR-005 | 镜像可构建；`docker run … version` 与 `… diagnose` 成功 | T050 | todo |
-| T062 | `.github/workflows/ci.yml`：fmt、vet、lint、`-race` 测试、构建矩阵、sdd-verify | 第八条 VIII.2 | 工作流全绿 | T060 | todo |
-| T063 | `.github/workflows/release.yml`：tag → 二进制 + 校验和 + 镜像 | FR-020、G12.2 | 对 tag 的试运行产出制品 | T062 | todo |
-| T064 | 双语用户手册、配置参考、错误码参考、README、快速上手 | G12.3、NFR-009 | `sddctl verify` 对等全绿；按手册操作可复现演示 | T050 | todo |
-| T065 | 示例配置与演示桩数据（`examples/`），让新用户一条命令拿到报告 | G12.1 | `make demo` 产出报告 | T064 | todo |
-| **G-G** | **闸门 G —— M1 出口** | | `make ci` 全绿；镜像可运行；发布制品产出 | | todo |
+| T061 | 多阶段 `Dockerfile`、非 root、`docker-compose` 示例 | FR-020、NFR-005 | 镜像可构建；`docker run … version` 与 `… diagnose` 成功 | T050 | done |
+| T062 | `.github/workflows/ci.yml`：fmt、vet、lint、`-race` 测试、构建矩阵、sdd-verify | 第八条 VIII.2 | 工作流全绿 | T060 | done |
+| T063 | `.github/workflows/release.yml`：tag → 二进制 + 校验和 + 镜像 | FR-020、G12.2 | 对 tag 的试运行产出制品 | T062 | done |
+| T064 | 双语用户手册、配置参考、错误码参考、README、快速上手 | G12.3、NFR-009 | `sddctl verify` 对等全绿；按手册操作可复现演示 | T050 | done |
+| T065 | 示例配置与演示桩数据（`examples/`），让新用户一条命令拿到报告 | G12.1 | `make demo` 产出报告 | T064 | done |
+| **G-G** | **闸门 G —— M1 出口** | | `make ci` 全绿；镜像可运行；发布制品产出 | | done |
 
 ## 检查点闸门
 

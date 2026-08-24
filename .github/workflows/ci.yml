@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  verify:
+    name: Format, vet and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  sdd:
+    name: Specification checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Bilingual parity, cascade freshness and requirement coverage. A change
+      # that edits one language, or advances a spec without re-reviewing what
+      # derives from it, fails here rather than reaching main.
+      - name: sddctl verify
+        run: go run ./cmd/sddctl verify
+
+      - name: Generated error-code references are up to date
+        run: |
+          go run ./cmd/mas errcodes --format markdown --lang en > /tmp/error-codes.en.md
+          go run ./cmd/mas errcodes --format markdown --lang zh > /tmp/error-codes.zh.md
+          if ! diff -q /tmp/error-codes.en.md docs/en/error-codes.md >/dev/null 2>&1; then
+            echo "docs/en/error-codes.md is stale; run: make errcodes-docs"
+            diff -u docs/en/error-codes.md /tmp/error-codes.en.md || true
+            exit 1
+          fi
+          if ! diff -q /tmp/error-codes.zh.md docs/zh/error-codes.md >/dev/null 2>&1; then
+            echo "docs/zh/error-codes.md is stale; run: make errcodes-docs"
+            diff -u docs/zh/error-codes.md /tmp/error-codes.zh.md || true
+            exit 1
+          fi
+
+  test:
+    name: Tests (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.24"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      # The suite must not need a network: every external system is stubbed.
+      # This is what makes the tests trustworthy in an air-gapped build too.
+      - name: Test with the race detector
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags "-s -w" -o /tmp/mas ./cmd/mas
+
+  demo:
+    name: End-to-end demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Proves the claim the README makes: one command after cloning produces a
+      # real report, with no credentials and no live middleware.
+      - name: make demo
+        run: make demo
+
+      - name: The report must be a real diagnosis
+        run: |
+          test -s .demo/report.en.md
+          test -s .demo/report.zh.md
+          grep -q "## Hypotheses" .demo/report.en.md
+          grep -q "## Recommended next steps" .demo/report.en.md
+          grep -q "read-only" .demo/report.en.md
+          grep -q "## 假设" .demo/report.zh.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-reports
+          path: .demo/*.md
+          retention-days: 7
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: mas-turbo:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The image must run, non-root, and produce a report
+        run: |
+          docker run --rm mas-turbo:ci version
+          docker run --rm mas-turbo:ci topologies
+          uid=$(docker run --rm --entrypoint id mas-turbo:ci -u)
+          if [ "$uid" = "0" ]; then
+            echo "the image runs as root; it must not"
+            exit 1
+          fi
+          echo "image runs as uid $uid"
+
+      - name: Image size gate
+        run: |
+          bytes=$(docker image inspect mas-turbo:ci --format '{{.Size}}')
+          mb=$((bytes / 1024 / 1024))
+          echo "image size: ${mb} MB"
+          if [ "$mb" -gt 100 ]; then
+            echo "image exceeds the 100 MB budget from NFR-005"
+            exit 1
+          fi

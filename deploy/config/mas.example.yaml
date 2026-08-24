@@ -1,0 +1,122 @@
+# MAS-Turbo configuration reference example.
+#
+# Precedence, lowest to highest: built-in defaults, this file, MAS_* environment
+# variables, command-line flags. Secrets use ${env:NAME} or ${file:/path} and are
+# resolved when a request is made, never stored in memory as plaintext.
+#
+# Full reference: docs/en/configuration.md (中文: docs/zh/configuration.md)
+version: "1"
+
+log:
+  level: info          # debug | info | warn | error
+  format: json         # json | text
+  redact:              # extra regexes scrubbed from logs, reports and prompts
+    - "internal-ticket-[0-9]+"
+
+llm:
+  provider: anthropic  # mock | anthropic | openai
+  model: claude-opus-5
+  api_key: "${env:ANTHROPIC_API_KEY}"
+  timeout: 60s
+  max_tokens: 4096
+  # Route cheap extraction to a smaller model and keep the strong one for
+  # correlation and critique.
+  per_agent:
+    investigator:
+      model: claude-haiku-4-5-20251001
+
+telemetry:
+  metrics:
+    - name: primary
+      type: prometheus         # prometheus | victoriametrics | thanos | mimir
+      url: http://prometheus.monitoring.svc:9090
+      auth:
+        type: bearer           # none | bearer | basic | header
+        token: "${env:PROM_TOKEN}"
+      timeout: 15s
+      max_samples: 11000
+  logs:
+    - name: primary
+      type: loki
+      url: http://loki.monitoring.svc:3100
+      tenant_id: ""            # sets X-Scope-OrgID for multi-tenant Loki
+      timeout: 20s
+      max_lines: 1000
+
+envs:
+  prod-k8s:
+    type: kubernetes
+    # Leave kubeconfig empty to use the in-cluster service account.
+    kubeconfig: "${env:KUBECONFIG}"
+    context: ""
+    namespace: middleware
+    timeout: 20s
+  edge-host:
+    type: local
+
+targets:
+  - id: redis-prod
+    kind: redis
+    version: "7.2.4"           # omit to detect from the running image tag
+    env: prod-k8s
+    namespace: middleware
+    selector: "app=redis,role=master"
+    labels:                    # becomes the PromQL selector, e.g. {job="redis"}
+      job: redis
+    metrics_source: primary
+    logs_source: primary
+
+  - id: kafka-prod
+    kind: kafka
+    env: prod-k8s
+    namespace: middleware
+    selector: "app=kafka"
+    labels:
+      job: kafka
+
+knowledge:
+  pack_dirs:
+    - /etc/mas/packs           # your packs override the embedded ones by id
+
+source:
+  enabled: true
+  cache_dir: /var/lib/mas/src
+  network_timeout: 10s
+  cache_ttl: 24h
+  repos:
+    redis: "https://github.com/redis/redis"
+    kafka: "https://github.com/apache/kafka"
+  mirrors:                     # used automatically when the network is unreachable
+    redis: "/srv/mirrors/redis.git"
+
+run:
+  default_topology: supervisor # `mas topologies` lists the options
+  default_mode: offline        # online additionally reads the live environment
+  default_window: 1h
+  # A deterministic finding at or above this confidence skips the agent phase,
+  # so routine cases cost nothing. Set to 0 to always run the agents.
+  deterministic_short_circuit: 0.85
+  language: en                 # en | zh
+  max_concurrency: 4
+  budget:
+    max_steps: 24
+    max_tool_calls: 40
+    max_tokens: 120000
+    max_wall: 5m
+
+store:
+  type: fs                     # fs | memory
+  dir: /var/lib/mas/runs
+
+server:
+  addr: ":8080"
+  read_timeout: 30s
+  write_timeout: 120s
+
+safety:
+  # These may only narrow the guard. There is no setting that widens it, and no
+  # setting that disables it.
+  extra_denied_binaries: []
+  extra_denied_args: []
+  max_response_bytes: 8388608
+  max_timeout: 120s
