@@ -1,0 +1,568 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: kafka
+  name: kafka-core
+  version: 1.0.0
+  versionRange: ">=2.0"
+
+# Signals assume the widely deployed danielqsj/kafka_exporter together with the
+# JMX exporter's kafka_server_* series. {{.selector}} is substituted at run time.
+signals:
+  - id: brokers
+    promql: 'kafka_brokers{{.selector}}'
+    unit: brokers
+    description:
+      en: "Number of brokers the exporter can see. A drop means a broker left the cluster."
+      zh: "exporter 能看到的 broker 数量。数量下降意味着有 broker 离开了集群。"
+  - id: under_replicated
+    promql: 'sum(kafka_topic_partition_under_replicated_partition{{.selector}})'
+    unit: partitions
+    description:
+      en: "Partitions whose in-sync replica set is smaller than the replication factor. The single most important Kafka health number."
+      zh: "ISR 集合小于副本因子的分区数。这是 Kafka 最重要的单一健康指标。"
+  - id: offline_partitions
+    promql: 'sum(kafka_controller_kafkacontroller_offlinepartitionscount{{.selector}})'
+    unit: partitions
+    description:
+      en: "Partitions with no leader. Producers and consumers for these partitions are completely stalled."
+      zh: "没有 leader 的分区数。这些分区的生产与消费完全停滞。"
+  - id: active_controllers
+    promql: 'sum(kafka_controller_kafkacontroller_activecontrollercount{{.selector}})'
+    unit: controllers
+    description:
+      en: "Active controllers cluster-wide. Exactly 1 is healthy; 0 means no controller, more than 1 means split brain."
+      zh: "全集群活跃 controller 数。恰好为 1 才健康；0 表示无 controller，大于 1 表示脑裂。"
+  - id: consumer_lag
+    promql: 'sum(kafka_consumergroup_lag{{.selector}}) by (consumergroup, topic)'
+    unit: messages
+    description:
+      en: "Messages a consumer group has not yet read, by group and topic."
+      zh: "按消费组与 topic 统计的、消费组尚未读取的消息数。"
+  - id: consumer_lag_total
+    promql: 'sum(kafka_consumergroup_lag{{.selector}})'
+    unit: messages
+    description:
+      en: "Total unread messages across all consumer groups."
+      zh: "所有消费组未读消息总数。"
+  - id: messages_in_rate
+    promql: 'sum(rate(kafka_topic_partition_current_offset{{.selector}}[5m]))'
+    unit: messages/s
+    description:
+      en: "Messages produced per second, derived from partition offset growth."
+      zh: "由分区 offset 增长推导出的每秒生产消息数。"
+  - id: isr_shrink_rate
+    promql: 'sum(rate(kafka_server_replicamanager_isrshrinks_total{{.selector}}[5m]))'
+    unit: shrinks/s
+    description:
+      en: "In-sync replica set shrink events per second. Repeated shrinks mean replicas cannot keep up."
+      zh: "每秒 ISR 收缩事件数。反复收缩说明副本跟不上。"
+  - id: request_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(kafka_network_requestmetrics_totaltimems_bucket{{.selector}}[5m])) by (le, request))'
+    unit: milliseconds
+    description:
+      en: "99th-percentile broker request latency by request type."
+      zh: "按请求类型统计的 broker 请求 P99 时延。"
+  - id: log_flush_p99
+    promql: 'histogram_quantile(0.99, sum(rate(kafka_log_logflushstats_logflushrateandtimems_bucket{{.selector}}[5m])) by (le))'
+    unit: milliseconds
+    description:
+      en: "99th-percentile log flush time — effectively the broker's disk latency."
+      zh: "日志刷盘时间 P99 —— 实际上就是 broker 的磁盘时延。"
+  - id: partition_count
+    promql: 'sum(kafka_server_replicamanager_partitioncount{{.selector}})'
+    unit: partitions
+    description:
+      en: "Partitions hosted per broker. A skewed distribution concentrates load on one broker."
+      zh: "每个 broker 承载的分区数。分布倾斜会把负载集中到某一个 broker 上。"
+  - id: failed_produce_rate
+    promql: 'sum(rate(kafka_server_brokertopicmetrics_failedproducerequests_total{{.selector}}[5m]))'
+    unit: requests/s
+    description:
+      en: "Produce requests failing per second."
+      zh: "每秒失败的生产请求数。"
+  - id: failed_fetch_rate
+    promql: 'sum(rate(kafka_server_brokertopicmetrics_failedfetchrequests_total{{.selector}}[5m]))'
+    unit: requests/s
+    description:
+      en: "Fetch requests failing per second."
+      zh: "每秒失败的拉取请求数。"
+
+logPatterns:
+  - id: isr_shrink
+    regex: 'Shrinking ISR from .* to'
+    severity: major
+    meaning:
+      en: "A replica fell out of the in-sync set. Durability guarantees are reduced until it rejoins."
+      zh: "有副本掉出 ISR 集合。在其重新加入之前，持久性保证被削弱。"
+  - id: isr_expand
+    regex: 'Expanding ISR from .* to'
+    severity: info
+    meaning:
+      en: "A replica rejoined the in-sync set."
+      zh: "有副本重新加入了 ISR 集合。"
+  - id: not_leader
+    regex: 'NotLeaderForPartitionException|NOT_LEADER_OR_FOLLOWER'
+    severity: major
+    meaning:
+      en: "Leadership moved. A brief burst is normal during a rebalance; a sustained stream is not."
+      zh: "leader 发生了迁移。再均衡期间短暂出现属正常；持续不断则不正常。"
+  - id: rebalance
+    regex: '(Preparing to rebalance group|Successfully joined group|Attempt to heartbeat failed)'
+    severity: major
+    meaning:
+      en: "A consumer group is rebalancing. Consumption stops for the whole group while it does."
+      zh: "消费组正在再均衡。在此期间整个组的消费都会停止。"
+  - id: group_kicked
+    regex: 'Member .* has failed, removing it from the group'
+    severity: major
+    meaning:
+      en: "A consumer missed its session timeout — usually a long poll loop or a GC pause, not a network fault."
+      zh: "某个消费者错过了 session 超时 —— 通常是 poll 循环过长或 GC 停顿，而非网络故障。"
+  - id: disk_error
+    regex: '(No space left on device|Error while writing to checkpoint file|Disk error while)'
+    severity: critical
+    meaning:
+      en: "The broker cannot write to its log directory; it will shut down the affected directory."
+      zh: "broker 无法写入其日志目录；它会下线受影响的目录。"
+  - id: controller_election
+    regex: '(Broker .* starting controller election|Successfully elected as the controller)'
+    severity: major
+    meaning:
+      en: "A controller election ran. Frequent elections indicate an unstable coordination layer."
+      zh: "发生了 controller 选举。频繁选举意味着协调层不稳定。"
+  - id: zk_session_expired
+    regex: '(Session expired|Unable to reconnect to ZooKeeper)'
+    severity: critical
+    meaning:
+      en: "The broker lost its ZooKeeper session and will re-register, moving leadership as it does."
+      zh: "broker 丢失了 ZooKeeper 会话并将重新注册，过程中会发生 leader 迁移。"
+  - id: request_timeout
+    regex: '(Timed out waiting|expiring .* record\(s\) for)'
+    severity: major
+    meaning:
+      en: "Producer records expired before being acknowledged, so they were dropped by the client."
+      zh: "生产者的记录在被确认前就已过期，因而被客户端丢弃。"
+  - id: log_cleaner_died
+    regex: '(cleaner thread .* died|Log cleaner thread)'
+    severity: critical
+    meaning:
+      en: "Compaction has stopped; compacted topics will grow without bound."
+      zh: "压缩已停止；启用压缩的 topic 将无限增长。"
+
+failureModes:
+  - id: under-replicated-partitions
+    severity: critical
+    title:
+      en: "Under-replicated partitions"
+      zh: "分区副本不足"
+    explanation:
+      en: "One or more partitions have fewer in-sync replicas than their replication factor. Acknowledged writes are less durable than configured, and with min.insync.replicas set, producers using acks=all start failing."
+      zh: "存在分区的 ISR 副本数少于其副本因子。已确认的写入其持久性低于配置值；若设置了 min.insync.replicas，使用 acks=all 的生产者会开始失败。"
+    symptoms: ["replication", "under replicated", "isr", "durability", "produce failure"]
+    indicators: ["under_replicated > 0", "isr_shrink_rate > 0", "Shrinking ISR in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Identify which broker is behind: a single broker in every under-replicated partition points at that broker's disk or network."
+          zh: "找出落后的 broker：如果每个副本不足的分区都指向同一个 broker，问题就在该 broker 的磁盘或网络上。"
+      - risk: low
+        statement:
+          en: "Check log flush latency on the lagging broker before assuming a network problem."
+          zh: "在断定是网络问题之前，先检查落后 broker 的日志刷盘时延。"
+      - risk: medium
+        statement:
+          en: "If a broker is genuinely gone, replication will not recover until it returns or partitions are reassigned by an operator."
+          zh: "如果某个 broker 确实已经不在，复制不会自行恢复 —— 需要它回来，或由运维人员重新分配分区。"
+
+  - id: offline-partitions
+    severity: critical
+    title:
+      en: "Offline partitions"
+      zh: "分区离线"
+    explanation:
+      en: "Partitions have no leader, so they accept neither produce nor fetch requests. This is a total outage for the affected topics."
+      zh: "分区没有 leader，因此既不接受生产也不接受拉取。对受影响的 topic 而言这是彻底的中断。"
+    symptoms: ["offline", "outage", "no leader", "unavailable"]
+    indicators: ["offline_partitions > 0"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check the controller first: offline partitions with no active controller is a coordination failure, not a data failure."
+          zh: "先检查 controller：分区离线且没有活跃 controller，说明是协调层故障而非数据故障。"
+      - risk: high
+        statement:
+          en: "Unclean leader election restores availability by promoting an out-of-sync replica, which discards data. Only an operator can make that trade."
+          zh: "unclean leader election 会通过提升不同步的副本来恢复可用性，代价是丢数据。这个取舍只能由人来做。"
+
+  - id: consumer-lag-growth
+    severity: major
+    title:
+      en: "Consumer group falling behind"
+      zh: "消费组持续落后"
+    explanation:
+      en: "A consumer group's lag is growing, meaning it consumes more slowly than producers write. Left alone, lag grows until the retention window is exceeded and messages are lost unread."
+      zh: "某消费组的 lag 持续增长，说明其消费速度低于生产速度。若放任不管，lag 会一直增长，直到超出保留窗口，消息在未被读取的情况下丢失。"
+    symptoms: ["lag", "consumer", "behind", "slow consumer", "backlog"]
+    indicators: ["consumer_lag growing monotonically", "rebalance entries in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Distinguish a slow consumer from a rebalancing one: repeated rebalances stop consumption entirely and look like slowness."
+          zh: "区分“消费慢”与“正在再均衡”：反复再均衡会让消费完全停止，看起来就像变慢了。"
+      - risk: low
+        statement:
+          en: "Compare lag growth with produce rate; a lag spike after a produce spike is catch-up, not a defect."
+          zh: "把 lag 增长与生产速率放在一起看；生产高峰之后的 lag 上升是追赶，而不是缺陷。"
+      - risk: medium
+        statement:
+          en: "Scaling consumers only helps up to the partition count; beyond that, partitions must be added first."
+          zh: "增加消费者的收益在分区数处封顶；超过之后必须先增加分区。"
+
+  - id: consumer-rebalance-loop
+    severity: major
+    title:
+      en: "Consumer group rebalancing repeatedly"
+      zh: "消费组反复再均衡"
+    explanation:
+      en: "The group keeps rebalancing, and consumption halts for every member each time. The usual cause is processing that exceeds max.poll.interval.ms, so a healthy consumer is repeatedly judged dead."
+      zh: "消费组不断再均衡，每次都会让所有成员停止消费。常见原因是单批处理耗时超过 max.poll.interval.ms，于是健康的消费者被反复判定为已死。"
+    symptoms: ["rebalance", "consumer", "lag", "heartbeat", "group"]
+    indicators: ["repeated rebalance log entries", "lag sawtooth pattern"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Count rebalances in the window; more than a few is a loop, not normal membership change."
+          zh: "统计时间窗内的再均衡次数；超过个位数就是死循环，而不是正常的成员变更。"
+      - risk: low
+        statement:
+          en: "Check whether processing time per poll exceeds max.poll.interval.ms before touching any broker setting."
+          zh: "在动任何 broker 配置之前，先确认每次 poll 的处理耗时是否超过了 max.poll.interval.ms。"
+
+  - id: broker-loss
+    severity: critical
+    title:
+      en: "Broker left the cluster"
+      zh: "broker 离开集群"
+    explanation:
+      en: "The visible broker count dropped. Leadership moves to surviving brokers, which is disruptive even when it works correctly."
+      zh: "可见的 broker 数量下降。leader 会迁移到存活的 broker 上 —— 即使过程完全正确，这本身也是有破坏性的。"
+    symptoms: ["broker", "down", "outage", "not leader", "unavailable"]
+    indicators: ["brokers decreased", "controller election in logs", "under_replicated rising"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Establish whether the broker process died or only lost its coordination session; the remedies differ entirely."
+          zh: "先弄清 broker 进程是真的死了，还是只丢了协调会话；两者的处理方式完全不同。"
+      - risk: low
+        statement:
+          en: "Check disk space on the departed broker: a full log directory takes a broker offline by design."
+          zh: "检查离开的 broker 的磁盘空间：日志目录写满会按设计让 broker 下线。"
+
+  - id: controller-instability
+    severity: critical
+    title:
+      en: "Controller missing or duplicated"
+      zh: "controller 缺失或重复"
+    explanation:
+      en: "A healthy cluster has exactly one active controller. Zero means partition leadership cannot change, so failures cannot be recovered from; more than one means split brain."
+      zh: "健康的集群恰好有一个活跃 controller。为 0 意味着分区 leader 无法变更，故障因此无法恢复；大于 1 则意味着脑裂。"
+    symptoms: ["controller", "election", "split brain", "offline"]
+    indicators: ["active_controllers != 1", "frequent controller elections in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check the coordination layer — ZooKeeper ensemble or KRaft quorum — before looking at brokers."
+          zh: "先检查协调层 —— ZooKeeper 集群或 KRaft quorum —— 再去看 broker。"
+
+  - id: broker-disk-latency
+    severity: major
+    title:
+      en: "Broker disk latency"
+      zh: "broker 磁盘时延"
+    explanation:
+      en: "Log flush time has risen. Kafka's throughput is bounded by sequential disk writes, so flush latency propagates directly into produce latency and then into ISR shrinks."
+      zh: "日志刷盘时间上升。Kafka 的吞吐受顺序磁盘写入限制，因此刷盘时延会直接传导为生产时延，进而引发 ISR 收缩。"
+    symptoms: ["latency", "slow", "disk", "produce", "timeout"]
+    indicators: ["log_flush_p99 elevated", "request_latency_p99 elevated", "isr_shrink_rate > 0"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare flush latency across brokers; one slow broker explains cluster-wide symptoms."
+          zh: "横向比较各 broker 的刷盘时延；一个慢 broker 就足以解释全集群的症状。"
+      - risk: medium
+        statement:
+          en: "Check for a partition-count imbalance concentrating writes on the affected broker."
+          zh: "检查是否存在分区分布不均，把写入集中到了受影响的 broker 上。"
+
+  - id: produce-failures
+    severity: critical
+    title:
+      en: "Produce requests failing"
+      zh: "生产请求失败"
+    explanation:
+      en: "Brokers are rejecting produce requests. With acks=all and min.insync.replicas, this is the expected consequence of under-replication rather than a separate fault."
+      zh: "broker 正在拒绝生产请求。在 acks=all 与 min.insync.replicas 的组合下，这是副本不足的预期后果，而不是另一个独立故障。"
+    symptoms: ["produce", "write error", "failed", "not enough replicas"]
+    indicators: ["failed_produce_rate > 0", "under_replicated > 0"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check under-replicated partitions first: produce failures are usually the symptom, not the cause."
+          zh: "先检查副本不足的分区：生产失败通常是症状而不是原因。"
+
+playbooks:
+  - id: kafka.cluster-health
+    title:
+      en: "Cluster health baseline"
+      zh: "集群健康基线"
+    description:
+      en: "Runs on every Kafka diagnosis: brokers present, exactly one controller, no offline or under-replicated partitions."
+      zh: "每次 Kafka 诊断都会运行：broker 是否齐全、controller 是否恰好一个、有无离线或副本不足的分区。"
+    steps:
+      - id: collect-brokers
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:brokers}}" }
+          as: brokers
+      - id: collect-controllers
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:active_controllers}}" }
+          as: controllers
+      - id: collect-offline
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:offline_partitions}}" }
+          as: offline
+      - id: collect-under
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:under_replicated}}" }
+          as: under
+      - id: eval-offline
+        evaluate: "not offline.empty and offline.max > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.95
+            statement:
+              en: "Partitions were offline during the window."
+              zh: "时间窗内存在离线分区。"
+            detail:
+              en: "An offline partition has no leader: producers and consumers for it are completely stalled."
+              zh: "离线分区没有 leader：其生产者与消费者完全停滞。"
+        onFalse:
+          pass:
+            en: "No offline partitions."
+            zh: "无离线分区。"
+      - id: eval-under
+        evaluate: "not under.empty and under.max > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Partitions were under-replicated during the window."
+              zh: "时间窗内存在副本不足的分区。"
+            detail:
+              en: "Acknowledged writes are less durable than configured, and acks=all producers may be failing."
+              zh: "已确认写入的持久性低于配置值，使用 acks=all 的生产者可能正在失败。"
+        onFalse:
+          pass:
+            en: "All partitions were fully replicated."
+            zh: "所有分区副本齐全。"
+      - id: eval-controller
+        evaluate: "not controllers.empty and controllers.latest != 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The cluster does not have exactly one active controller."
+              zh: "集群的活跃 controller 数不等于 1。"
+            detail:
+              en: "Zero controllers means leadership cannot change and failures cannot be recovered from; more than one is split brain."
+              zh: "没有 controller 意味着 leader 无法变更、故障无法恢复；多于一个则是脑裂。"
+        onFalse:
+          pass:
+            en: "Exactly one active controller."
+            zh: "恰好一个活跃 controller。"
+      - id: eval-broker-loss
+        evaluate: "not brokers.empty and brokers.min < brokers.max"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "The visible broker count changed during the window."
+              zh: "时间窗内可见 broker 数量发生了变化。"
+            detail:
+              en: "A broker leaving moves partition leadership, which is disruptive even when it completes correctly."
+              zh: "broker 离开会引起分区 leader 迁移 —— 即使过程正确完成，也具有破坏性。"
+      - id: conclude-offline
+        conclude: { failureMode: offline-partitions, when: "not offline.empty and offline.max > 0" }
+      - id: conclude-under
+        conclude: { failureMode: under-replicated-partitions, when: "not under.empty and under.max > 0" }
+      - id: conclude-controller
+        conclude: { failureMode: controller-instability, when: "not controllers.empty and controllers.latest != 1" }
+      - id: conclude-broker
+        conclude: { failureMode: broker-loss, when: "not brokers.empty and brokers.min < brokers.max" }
+
+  - id: kafka.consumer-lag
+    title:
+      en: "Consumer lag and rebalancing"
+      zh: "消费 lag 与再均衡"
+    matches: ["lag", "consumer", "behind", "backlog", "rebalance", "slow", "消费", "堆积", "再均衡"]
+    description:
+      en: "Separates a genuinely slow consumer from a group that keeps rebalancing and therefore never consumes."
+      zh: "把“确实消费慢”与“不断再均衡因而根本没在消费”区分开。"
+    steps:
+      - id: collect-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:consumer_lag_total}}" }
+          as: lag
+      - id: collect-in
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:messages_in_rate}}" }
+          as: incoming
+      - id: eval-growing
+        evaluate: "not lag.empty and lag.delta > 0 and lag.latest > 1000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Consumer lag grew across the window and is substantial."
+              zh: "消费 lag 在时间窗内持续增长且规模可观。"
+            detail:
+              en: "The group is consuming more slowly than producers write; unchecked, messages will age out of retention unread."
+              zh: "该组的消费速度低于生产速度；若不干预，消息会在未被读取的情况下超出保留期。"
+        onFalse:
+          pass:
+            en: "Consumer lag is stable or shrinking."
+            zh: "消费 lag 保持稳定或正在下降。"
+      - id: eval-catchup
+        evaluate: "not lag.empty and not incoming.empty and lag.delta < 0 and lag.latest > 0"
+        onTrue:
+          finding:
+            severity: info
+            confidence: 0.6
+            statement:
+              en: "Lag is present but shrinking: the group is catching up."
+              zh: "存在 lag 但正在缩小：该组正在追赶。"
+            detail:
+              en: "This is recovery, not a fault. Confirm the rate of recovery is fast enough for the retention window."
+              zh: "这是恢复过程而非故障。请确认恢复速度相对保留窗口足够快。"
+      - id: conclude
+        conclude: { failureMode: consumer-lag-growth, when: "not lag.empty and lag.delta > 0 and lag.latest > 1000" }
+
+  - id: kafka.broker-latency
+    title:
+      en: "Broker latency and disk"
+      zh: "broker 时延与磁盘"
+    matches: ["latency", "slow", "timeout", "produce", "disk", "p99", "时延", "超时", "磁盘"]
+    description:
+      en: "Checks whether broker request latency is explained by disk flush time and whether it is causing ISR shrinks."
+      zh: "检查 broker 请求时延是否可由刷盘时间解释，以及它是否正在引发 ISR 收缩。"
+    steps:
+      - id: collect-flush
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:log_flush_p99}}" }
+          as: flush
+      - id: collect-isr
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:isr_shrink_rate}}" }
+          as: isr
+      - id: collect-failed
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:failed_produce_rate}}" }
+          as: failed
+      - id: eval-flush
+        evaluate: "not flush.empty and flush.max > 100"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Log flush time exceeded 100 ms at the 99th percentile."
+              zh: "日志刷盘时间 P99 超过 100 毫秒。"
+            detail:
+              en: "Kafka throughput is bounded by sequential disk writes, so flush latency becomes produce latency."
+              zh: "Kafka 的吞吐受顺序磁盘写入限制，因此刷盘时延会直接变成生产时延。"
+        onFalse:
+          pass:
+            en: "Log flush latency is within normal bounds."
+            zh: "日志刷盘时延处于正常范围。"
+      - id: eval-isr
+        evaluate: "not isr.empty and isr.max > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "In-sync replica sets shrank during the window."
+              zh: "时间窗内发生了 ISR 收缩。"
+            detail:
+              en: "Replicas could not keep up with the leader, which is usually disk or network on one broker."
+              zh: "副本跟不上 leader，通常是某个 broker 的磁盘或网络问题。"
+      - id: eval-failed
+        evaluate: "not failed.empty and failed.max > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "Produce requests failed during the window."
+              zh: "时间窗内出现生产请求失败。"
+            detail:
+              en: "With acks=all and min.insync.replicas, this follows from under-replication rather than being a separate fault."
+              zh: "在 acks=all 与 min.insync.replicas 的组合下，这是副本不足的后果，而不是另一个独立故障。"
+        onFalse:
+          pass:
+            en: "No produce request failures."
+            zh: "无生产请求失败。"
+      - id: conclude-disk
+        conclude: { failureMode: broker-disk-latency, when: "not flush.empty and flush.max > 100" }
+      - id: conclude-produce
+        conclude: { failureMode: produce-failures, when: "not failed.empty and failed.max > 0" }
+
+inspect:
+  - id: topic-describe
+    binary: kafka-topics.sh
+    args: ["--bootstrap-server", "{{.host}}:{{.port}}", "--describe"]
+    description:
+      en: "Every topic with its partitions, leaders, replicas and in-sync replicas."
+      zh: "列出每个 topic 及其分区、leader、副本与 ISR。"
+  - id: topic-list
+    binary: kafka-topics.sh
+    args: ["--bootstrap-server", "{{.host}}:{{.port}}", "--list"]
+    description:
+      en: "Topic names only."
+      zh: "仅列出 topic 名称。"
+  - id: group-describe
+    binary: kafka-consumer-groups.sh
+    args: ["--bootstrap-server", "{{.host}}:{{.port}}", "--describe", "--all-groups"]
+    description:
+      en: "Per-partition lag, current offset and assigned member for every consumer group."
+      zh: "列出每个消费组按分区的 lag、当前 offset 与分配到的成员。"
+  - id: group-list
+    binary: kafka-consumer-groups.sh
+    args: ["--bootstrap-server", "{{.host}}:{{.port}}", "--list"]
+    description:
+      en: "Consumer group names only."
+      zh: "仅列出消费组名称。"
+  - id: broker-api-versions
+    binary: kafka-broker-api-versions.sh
+    args: ["--bootstrap-server", "{{.host}}:{{.port}}"]
+    description:
+      en: "Broker reachability and protocol versions — the cheapest connectivity check."
+      zh: "broker 可达性与协议版本 —— 最廉价的连通性检查。"
+
+source:
+  repos: ["https://github.com/apache/kafka"]

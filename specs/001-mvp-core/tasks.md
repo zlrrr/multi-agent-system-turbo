@@ -38,11 +38,11 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T020 | `internal/knowledge`: pack types, schema validation, loader, embed | FR-007 | `TestSchemaViolations`, `TestUserDirOverrides`, `TestVersionRange`, `TestBilingualPackFields` | T003 | todo |
-| T021 | Redis knowledge pack (signals, log patterns, failure modes, playbooks, inspect) | G2.2 | `TestEmbeddedPacksValid`, `TestRedisPackConformance` | T020 | todo |
-| T022 | Kafka knowledge pack | G2.2 | `TestKafkaPackConformance` | T020 | todo |
-| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds` | T020, T010 | todo |
-| **G-C** | **Gate C** | | `go test ./internal/knowledge/... ./internal/rules/...` green | | todo |
+| T020 | `internal/knowledge`: pack types, schema validation, loader, embed | FR-007 | `TestSchemaViolations`, `TestUserDirOverrides`, `TestVersionRange`, `TestBilingualPackFields` | T003 | done |
+| T021 | Redis knowledge pack (signals, log patterns, failure modes, playbooks, inspect) | G2.2 | `TestEmbeddedPacksValid`, `TestRedisPackConformance` | T020 | done |
+| T022 | Kafka knowledge pack | G2.2 | `TestKafkaPackConformance` | T020 | done |
+| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds` | T020, T010 | done |
+| **G-C** | **Gate C** | | `go test ./internal/knowledge/... ./internal/rules/...` green | | done |
 
 ## Phase D — Reasoning layer
 
