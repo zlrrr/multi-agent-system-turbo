@@ -81,7 +81,7 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | Code | Severity | Symbol | Meaning | What to do |
 |---|---|---|---|---|
 | `MAS-5001` | error | `PackSchemaViolation` | knowledge pack %s is invalid at %s: %s | Fix the pack against docs/en/knowledge-packs.md, then reload. |
-| `MAS-5002` | error | `PackDuplicate` | duplicate knowledge pack id %q | Pack ids must be unique across embedded and user pack directories. |
+| `MAS-5002` | error | `PackDuplicate` | duplicate knowledge pack id %q | Two packs under knowledge.pack_dirs claim the same id, so which one wins would depend on directory order. Rename one, or delete the copy you no longer use. Overriding a built-in pack is supported and is not this error. |
 | `MAS-5003` | warn | `PackNotFound` | no knowledge pack for middleware %q | Add a pack under knowledge.pack_dirs; analysis proceeds with generic checks only. |
 | `MAS-5004` | error | `PackVersionRangeInvalid` | knowledge pack %s has an invalid version range %q | Use a range such as ">=5.0", "<7", or ">=5.0 <8.0". |
 | `MAS-5005` | error | `PackReadFailed` | knowledge pack %s could not be read: %s | Check file permissions on the pack directory. |
@@ -90,6 +90,7 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-5012` | error | `SignalUnknown` | playbook %s references unknown signal %q | Declare the signal under `signals:` in the same knowledge pack. |
 | `MAS-5013` | warn | `PlaybookBudgetExceeded` | playbook %s exceeded its step budget of %d | Split the playbook, or raise run.budget.max_steps. |
 | `MAS-5014` | error | `PlaybookStepInvalid` | playbook %s step %s is invalid: %s | A step must declare exactly one of collect, evaluate or conclude. |
+| `MAS-5015` | warn | `CheckNotPerformed` | playbook %s step %s was skipped: %s | The check had no data to read, so its failure mode is neither confirmed nor ruled out. Check that the signal exists in this deployment. |
 
 ## Run storage
 

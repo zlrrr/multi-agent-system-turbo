@@ -1,6 +1,6 @@
 # Low-Level Design (LLD): MVP Core
 
-> **Feature ID**: `001-mvp-core` · **Version**: 1.0.1 · **Status**: approved
+> **Feature ID**: `001-mvp-core` · **Version**: 1.0.2 · **Status**: approved
 > **Bilingual pair**: [`design-lld.zh.md`](./design-lld.zh.md) · **Upstream**: [`design-hld.md`](./design-hld.md) v1.0.0 · **Downstream**: [`tasks.md`](./tasks.md), code
 
 Module path: `github.com/zlrrr/multi-agent-system-turbo`
@@ -518,9 +518,39 @@ step results (`.last`, `.max`, `.min`, `.avg`, `.count`, `.rate`) and helper fun
 (`contains`, `matches`, `duration`). No environment access, no I/O.
 
 - **Errors**: `MAS-5010` expression compile error, `MAS-5011` expression type error,
-  `MAS-5012` unknown signal reference, `MAS-5013` step budget exceeded.
+  `MAS-5012` unknown signal reference, `MAS-5013` step budget exceeded,
+  `MAS-5015` check not performed.
 - **Tests**: full playbook happy path; missing evidence ⇒ step skipped with gap, not failure;
   expression errors are coded; `LLMCalls == 0`; NFR-002 wall-clock assertion.
+
+**Amendment 1.0.2 — two corrections found by feature 002's integration test.**
+Both were silent: neither produced an error, and both made the report claim more
+certainty than the run had earned.
+
+1. *Regex literals were read as slot references.* The engine finds a step's
+   dependencies by scanning its expression for identifiers, and the scan did not
+   skip quoted strings. Every word inside a regular expression passed to
+   `countMatching` therefore looked like a slot that had never been collected, so
+   the engine skipped the check and recorded a gap instead of running it — which
+   silently disabled **every log-pattern check in every pack**. `identifiers` now
+   skips quoted literals; `TestRegexLiteralsAreNotSlotReferences` and
+   `TestIdentifiersIgnoreQuotedText` pin it.
+
+2. *An unmeasured metric was reported as a passed check.* A PromQL query that
+   returns no series binds a slot whose numbers are all zero, and zero compares as
+   healthy against nearly every threshold. A pack's `onFalse.pass` text was
+   therefore emitted for a measurement that was never obtained — "usage is within
+   normal bounds" for a metric this deployment does not export. When an expression
+   that reads a metric slot with no series evaluates false, the engine now records
+   a `MAS-5015` gap and takes neither branch (Constitution Art. V; FR-013). The
+   deliberate `up.empty or up.latest < 1` reading evaluates *true* on an empty
+   slot and is unaffected, which `TestDeliberateEmptyReadingStillFires` pins.
+   Log slots are exempt on purpose: a log query returning nothing is a real
+   observation, while a metric query returning nothing means the signal does not
+   exist in this deployment.
+
+  `MAS-5015` also replaces the reuse of `MAS-5013` for missing-dependency skips;
+  `MAS-5013` now means step-budget truncation and nothing else.
 
 ### 2.13 `internal/llm` — governs HLD §4.2
 
@@ -763,5 +793,6 @@ Allocation blocks are HLD §7.1; specific codes are listed per package in §2 ab
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.0.2 | 2026-08-24 | §2.12: two silent correctness corrections in the rule engine — regex literals are no longer read as slot references, and a metric that returned no series can no longer be reported as a passed check; `MAS-5015` added | `internal/rules` fixed with regression tests; `pkg/errs` gains one code; error-code references regenerated |
 | 1.0.1 | 2026-08-23 | §2.9: `exec` credential plugins recorded as deliberately unsupported, with the trust argument and the operator-facing alternative | `tasks.md` re-reviewed, unchanged; `plan.md` RSK-001 mitigation narrowed |
 | 1.0.0 | 2026-08-23 | Initial low-level design | `tasks.md`, code |

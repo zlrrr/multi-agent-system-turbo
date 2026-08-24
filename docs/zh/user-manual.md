@@ -353,8 +353,6 @@ rules:
 
 - **容器内命令执行**（在 Pod 内执行 Redis `INFO`）—— 本地主机适配器今天已支持；
   Kubernetes 的 `exec` 路径是下一个里程碑。
-- **MongoDB、Pulsar、Milvus、OceanBase 的知识包** —— Schema 已支持，你现在就可以自己编写；
-  官方版本正在制作中。
 - **更多拓扑**（`plan-execute`、`debate`、`blackboard`）—— 注册表已就绪。
 - **API 认证** —— 暂时不要把 API 暴露到可信网络之外。
 - **Web UI** —— 当前只有 CLI 与 API。

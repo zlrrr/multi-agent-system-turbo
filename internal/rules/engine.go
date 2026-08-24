@@ -146,7 +146,7 @@ func (e *Engine) runEvaluate(pb *knowledge.Playbook, st knowledge.Step, lang str
 		// Dependencies were not collected; skip rather than guess (FR-013).
 		out.Gaps = append(out.Gaps, core.Gap{
 			Intent: pb.ID + "/" + st.ID, Reason: core.GapUnavailable,
-			Code:   "MAS-5013",
+			Code:   "MAS-5015",
 			Detail: "skipped: no data for " + strings.Join(missing, ", "),
 			Impact: "this check was not performed, so its failure mode is neither confirmed nor ruled out",
 		})
@@ -169,6 +169,23 @@ func (e *Engine) runEvaluate(pb *knowledge.Playbook, st knowledge.Step, lang str
 	branch := st.OnFalse
 	if held {
 		branch = st.OnTrue
+	}
+	if !held {
+		// A metric that returned no series compares as zero, which reads as
+		// healthy. When such a slot took part in an expression that came out
+		// false, the check did not run: reporting its false branch would state
+		// as ruled out something that was never measured (Constitution Art. V,
+		// FR-013). Emptiness that the author read deliberately — `up.empty or
+		// up.latest < 1` — comes out true and is unaffected.
+		if unmeasured := emptyMetricSlots(st.Evaluate, env); len(unmeasured) > 0 {
+			out.Gaps = append(out.Gaps, core.Gap{
+				Intent: pb.ID + "/" + st.ID, Reason: core.GapUnavailable,
+				Code:   "MAS-5015",
+				Detail: "skipped: no series returned for " + strings.Join(unmeasured, ", "),
+				Impact: "this check was not performed, so its failure mode is neither confirmed nor ruled out",
+			})
+			return false, nil
+		}
 	}
 	if branch == nil {
 		return false, nil
@@ -219,6 +236,26 @@ func (e *Engine) runConclude(pack *knowledge.Pack, pb *knowledge.Playbook, st kn
 // missingReferences reports which identifiers an expression needs that the
 // environment does not hold, so a skipped collection skips its checks instead of
 // failing the playbook.
+// emptyMetricSlots names the metric slots an expression reads that collected no
+// series. Log slots are excluded on purpose: a log query returning nothing is a
+// real observation ("nothing was logged in the window"), while a metric query
+// returning nothing means the signal does not exist in this deployment.
+func emptyMetricSlots(expression string, env map[string]any) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, ident := range identifiers(expression) {
+		if seen[ident] || isBuiltin(ident) {
+			continue
+		}
+		if view, ok := env[ident].(MetricView); ok && view.Empty {
+			seen[ident] = true
+			out = append(out, ident)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func missingReferences(expression string, env map[string]any) []string {
 	var missing []string
 	seen := map[string]bool{}
@@ -237,6 +274,13 @@ func missingReferences(expression string, env map[string]any) []string {
 
 // identifiers extracts the leading identifier of each dotted path in an
 // expression. It is intentionally simple: it only needs to find slot names.
+//
+// Quoted string literals are skipped. Playbooks pass regular expressions as
+// literals — countMatching(logs.lines, 'NotEnoughBookies|Not enough bookies') —
+// and the bare words inside them are not slot references. Reading them as
+// references made every log-pattern check look like it depended on slots that
+// were never collected, so the engine skipped it and reported a gap instead of
+// running it.
 func identifiers(s string) []string {
 	var out []string
 	var cur strings.Builder
@@ -251,6 +295,18 @@ func identifiers(s string) []string {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
+		if c == '\'' || c == '"' || c == '`' {
+			flush()
+			prevWasDot = false
+			// Skip to the closing quote. An unterminated literal cannot compile,
+			// so consuming the remainder costs nothing.
+			for i++; i < len(s) && s[i] != c; i++ {
+				if s[i] == '\\' && c != '`' {
+					i++
+				}
+			}
+			continue
+		}
 		switch {
 		case c == '_' || c == '.' && cur.Len() > 0:
 			if c == '.' {

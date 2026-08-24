@@ -2,7 +2,7 @@
 
 **A read-only diagnostic multi-agent system for open-source middleware.**
 
-[中文说明](./README.zh.md) · [User manual](./docs/en/user-manual.md) · [Configuration](./docs/en/configuration.md) · [Error codes](./docs/en/error-codes.md)
+[中文说明](./README.zh.md) · [User manual](./docs/en/user-manual.md) · [Configuration](./docs/en/configuration.md) · [Knowledge packs](./docs/en/knowledge-packs.md) · [Error codes](./docs/en/error-codes.md)
 
 ---
 
@@ -97,7 +97,7 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 
 | | Status |
 |---|---|
-| **Middleware** | Redis and Kafka knowledge packs ship; MongoDB, Pulsar, Milvus and OceanBase are pack-only work — the schema supports them and you can write your own now |
+| **Middleware** | Redis, Kafka, MongoDB, Pulsar, Milvus and OceanBase knowledge packs ship. Anything else is pack-only work: see the [pack-authoring guide](./docs/en/knowledge-packs.md) — no Go change, no rebuild |
 | **Telemetry** | Prometheus, VictoriaMetrics, Thanos, Mimir; Loki |
 | **Environments** | Kubernetes (read-only API); local host |
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |

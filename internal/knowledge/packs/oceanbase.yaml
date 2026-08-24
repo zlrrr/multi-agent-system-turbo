@@ -1,0 +1,758 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: oceanbase
+  name: oceanbase-core
+  version: 1.0.0
+  versionRange: ">=4.0"
+
+# OceanBase is multi-tenant by construction: a tenant owns a slice of each
+# observer's memory and CPU, and almost every incident is a tenant hitting the
+# edge of its own slice rather than the cluster running out of anything. Signals
+# are therefore written to preserve the tenant dimension wherever the exporter
+# provides it — an aggregate across tenants hides the one failing tenant inside
+# a healthy cluster average, which is the single most common way an OceanBase
+# diagnosis goes wrong.
+#
+# Metric names follow the ob_ families exported by obagent's Prometheus endpoint
+# for OceanBase 4.x. A signal that returns no series is recorded as a gap rather
+# than read as zero.
+signals:
+  - id: up
+    promql: 'up{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when Prometheus can scrape the observer or its agent, 0 when it cannot."
+      zh: "Prometheus 能抓取到 observer 或其 agent 时为 1，抓不到为 0。"
+  - id: tenant_memory_ratio
+    promql: 'max(ob_tenant_memory_bytes{{.selector}}) by (tenant_name) / clamp_min(max(ob_tenant_memory_limit_bytes{{.selector}}) by (tenant_name), 1)'
+    unit: ratio
+    description:
+      en: "Tenant memory against the tenant's own limit, per tenant. The cluster can be idle while one tenant is at its ceiling."
+      zh: "按租户统计的内存占用与该租户自身上限之比。集群整体可能很空闲，而某个租户已顶到天花板。"
+  - id: memstore_ratio
+    promql: 'max(ob_tenant_memstore_active_bytes{{.selector}}) by (tenant_name) / clamp_min(max(ob_tenant_memstore_limit_bytes{{.selector}}) by (tenant_name), 1)'
+    unit: ratio
+    description:
+      en: "Active MemStore against its limit. Writes land in MemStore first, so this is what fills between merges."
+      zh: "活跃 MemStore 占其上限的比例。写入首先落在 MemStore，因此两次合并之间被写满的就是它。"
+  - id: tenant_cpu_usage
+    promql: 'max(ob_tenant_cpu_usage{{.selector}}) by (tenant_name)'
+    unit: cores
+    description:
+      en: "CPU the tenant is using, per tenant, in units of the tenant's assigned resource units."
+      zh: "按租户统计的 CPU 使用量，单位与该租户被分配的资源单元一致。"
+  - id: tenant_cpu_limit
+    promql: 'max(ob_tenant_cpu_limit{{.selector}}) by (tenant_name)'
+    unit: cores
+    description:
+      en: "CPU the tenant is entitled to. A tenant pinned at its limit is throttled, not busy."
+      zh: "该租户有权使用的 CPU 上限。一个持续贴着上限的租户是被限流，而不是“忙”。"
+  - id: active_sessions
+    promql: 'sum(ob_active_session_num{{.selector}}) by (tenant_name)'
+    unit: sessions
+    description:
+      en: "Sessions actively executing, per tenant. It rises when statements take longer, whether or not more arrive."
+      zh: "按租户统计的活跃执行会话数。只要语句变慢，即便请求量不变，它也会上升。"
+  - id: sql_qps
+    promql: 'sum(rate(ob_sysstat{{.selector}}[5m])) by (tenant_name)'
+    unit: queries/s
+    description:
+      en: "Statement throughput derived from the system statistics counters, per tenant."
+      zh: "按租户统计、由系统统计计数器推导出的语句吞吐。"
+  - id: sql_rt_avg
+    promql: 'max(ob_sql_response_time_seconds{{.selector}}) by (tenant_name)'
+    unit: seconds
+    description:
+      en: "Average SQL response time per tenant. Compared against throughput it separates a slow plan from extra load."
+      zh: "按租户统计的 SQL 平均响应时间。与吞吐对照，可区分“执行计划变差”与“负载增加”。"
+  - id: slow_sql_count
+    promql: 'sum(rate(ob_sysstat{{.selector}}[5m]))'
+    unit: statements/s
+    description:
+      en: "Statements crossing the slow-query threshold. A rise here with steady throughput means plans changed, not demand."
+      zh: "越过慢查询阈值的语句速率。吞吐不变而它上升，意味着执行计划变了，而不是需求变了。"
+  - id: major_merge_lag
+    promql: 'max(ob_zone_merge_time_seconds{{.selector}})'
+    unit: seconds
+    description:
+      en: "How long the current major merge has been running. A merge that never finishes lets MemStore fill behind it."
+      zh: "当前 major merge 已运行的时长。一次永远完不成的合并，会让其身后的 MemStore 不断填满。"
+  - id: merge_error
+    promql: 'max(ob_zone_merge_error{{.selector}})'
+    unit: bool
+    description:
+      en: "1 when a zone reports a merge error. Until it clears, freed space is not being reclaimed."
+      zh: "某个 zone 报告合并错误时为 1。在其恢复前，被释放的空间不会被回收。"
+  - id: clog_sync_delay
+    promql: 'max(ob_log_sync_delay_seconds{{.selector}}) by (tenant_name)'
+    unit: seconds
+    description:
+      en: "Redo-log replication delay between a leader and its followers. It is the exposure window for a failover."
+      zh: "leader 与其 follower 之间的 redo 日志复制延迟。它就是发生切主时的数据暴露窗口。"
+  - id: clog_disk_ratio
+    promql: 'max(ob_clog_disk_used_bytes{{.selector}}) / clamp_min(max(ob_clog_disk_total_bytes{{.selector}}), 1)'
+    unit: ratio
+    description:
+      en: "Redo-log disk utilisation. OceanBase stops accepting writes rather than overwrite unreplicated log."
+      zh: "redo 日志盘使用率。OceanBase 宁可停止接受写入，也不会覆盖尚未复制的日志。"
+  - id: data_disk_ratio
+    promql: 'max(ob_disk_used_bytes{{.selector}}) / clamp_min(max(ob_disk_total_bytes{{.selector}}), 1)'
+    unit: ratio
+    description:
+      en: "Data-file utilisation on the observer. A major merge needs headroom here to write the merged SSTable."
+      zh: "observer 上数据文件的使用率。major merge 需要这里有余量来写出合并后的 SSTable。"
+  - id: partition_leader_count
+    promql: 'sum(ob_partition_num{{.selector}}) by (tenant_name)'
+    unit: partitions
+    description:
+      en: "Partitions this observer holds. A sharp change means leadership moved, which disconnects nothing but re-routes everything."
+      zh: "该 observer 持有的分区数。骤变意味着主副本发生了迁移 —— 它不会断开连接，但会改变所有请求的路由。"
+  - id: rs_status
+    promql: 'min(ob_server_status{{.selector}})'
+    unit: bool
+    description:
+      en: "0 when an observer is not in service. A cluster keeps working with one down, at reduced capacity and no redundancy for that partition set."
+      zh: "observer 未在服务状态时为 0。有一台宕机时集群仍可工作，但容量下降，且该分区集合失去冗余。"
+
+logPatterns:
+  - id: memory_limit_exceeded
+    regex: '(OB_ALLOCATE_MEMORY_FAILED|tenant memory.*(exceed|not enough)|Over tenant memory limits)'
+    severity: critical
+    meaning:
+      en: "A tenant could not allocate memory. Statements in that tenant fail with an allocation error while other tenants are unaffected."
+      zh: "某个租户无法分配内存。该租户内的语句会因分配失败而报错，其他租户不受影响。"
+  - id: memstore_full
+    regex: '(memstore.*(full|limit)|OB_EAGAIN.*memstore|Memstore is full)'
+    severity: critical
+    meaning:
+      en: "MemStore reached its limit, so writes are blocked until a freeze and merge release space."
+      zh: "MemStore 已达上限，写入被阻塞，直到一次 freeze 与合并释放出空间。"
+  - id: clog_disk_full
+    regex: '(clog disk.*(full|not enough)|log disk space.*exhaust|OB_LOG_OUTOF_DISK_SPACE)'
+    severity: critical
+    meaning:
+      en: "The redo-log disk filled. OceanBase refuses writes rather than discard log that followers have not replicated."
+      zh: "redo 日志盘写满。OceanBase 拒绝写入，而不会丢弃 follower 尚未复制的日志。"
+  - id: merge_failure
+    regex: '(major freeze.*(fail|error)|merge.*(failed|error)|OB_MERGE_ERROR)'
+    severity: critical
+    meaning:
+      en: "A major merge failed. Space from deleted rows is not reclaimed and the next merge starts from a larger backlog."
+      zh: "major merge 失败。已删除行占用的空间不会被回收，下一次合并将从更大的积压开始。"
+  - id: slow_query
+    regex: '(\[SLOW QUERY\]|slow query|elapsed=[0-9]{7,})'
+    severity: major
+    meaning:
+      en: "A statement crossed the slow-query threshold. The logged plan is usually enough to tell a bad plan from a large scan."
+      zh: "某条语句越过了慢查询阈值。日志中记录的执行计划通常足以区分“计划走错”与“扫描量本来就大”。"
+  - id: clog_sync_slow
+    regex: '(clog sync.*(slow|delay)|log sync.*timeout|replica.*sync.*lag)'
+    severity: major
+    meaning:
+      en: "Redo-log replication is lagging. Until it catches up, a failover would lose the unreplicated tail."
+      zh: "redo 日志复制滞后。在追上之前，一旦切主就会丢失未复制的那一段。"
+  - id: leader_change
+    regex: '(leader.*(revoke|takeover|change)|switch leader|election.*leader)'
+    severity: major
+    meaning:
+      en: "Partition leadership moved. In-flight statements on the old leader fail and clients retry against the new one."
+      zh: "分区主副本发生迁移。旧 leader 上正在执行的语句会失败，客户端会向新 leader 重试。"
+  - id: server_down
+    regex: '(server.*(is down|permanent offline)|observer.*stopped|OB_SERVER_IS_STOPPING)'
+    severity: critical
+    meaning:
+      en: "An observer left the cluster. Its partitions are served by replicas until it returns, with no redundancy in the meantime."
+      zh: "某台 observer 离开集群。在它回来之前，其分区由副本提供服务，期间没有冗余。"
+  - id: transaction_timeout
+    regex: '(OB_TRANS_TIMEOUT|transaction.*timeout|OB_TRANS_ROLLBACKED)'
+    severity: major
+    meaning:
+      en: "Transactions timed out or rolled back. The cause is upstream — usually a lock wait, a stalled write path, or a slow plan."
+      zh: "事务超时或回滚。原因在上游 —— 通常是锁等待、写入路径卡住，或执行计划变慢。"
+  - id: rpc_timeout
+    regex: '(OB_TIMEOUT.*rpc|rpc.*timeout|OB_RPC_CONNECT_ERROR)'
+    severity: major
+    meaning:
+      en: "Inter-observer RPCs timed out. A distributed statement is only as fast as its slowest participant."
+      zh: "observer 之间的 RPC 超时。一条分布式语句的快慢，取决于其中最慢的那个参与者。"
+
+failureModes:
+  - id: tenant-memory-exhaustion
+    severity: critical
+    title:
+      en: "Tenant memory exhausted"
+      zh: "租户内存耗尽"
+    explanation:
+      en: "A tenant reached its own memory limit while the cluster still has memory free. Statements in that tenant fail with allocation errors and every other tenant looks perfectly healthy — which is exactly why a cluster-level memory graph shows nothing wrong."
+      zh: "某个租户在集群内存尚有余量的情况下，触及了自身的内存上限。该租户内的语句会因分配失败而报错，而其他租户看上去完全健康 —— 这正是集群级内存曲线看不出任何异常的原因。"
+    symptoms: ["memory", "oom", "allocate", "tenant", "内存", "租户", "分配失败"]
+    indicators: ["tenant_memory_ratio high", "memstore_ratio high", "memory_limit_exceeded in logs", "memstore_full in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read memory per tenant rather than per cluster: a cluster average hides the one tenant that is at its ceiling."
+          zh: "按租户而不是按集群看内存：集群平均值会把那个顶到天花板的租户藏起来。"
+        rationale:
+          en: "Tenant limits are enforced independently, so the failing tenant is invisible in any aggregate."
+          zh: "租户上限是各自独立强制执行的，因此故障租户在任何聚合值中都不可见。"
+      - risk: low
+        statement:
+          en: "Separate MemStore pressure from general tenant memory: MemStore fills with writes and is released by a merge, the rest is not."
+          zh: "把 MemStore 压力与租户总体内存分开看：MemStore 随写入填满、靠合并释放，其余部分并非如此。"
+      - risk: medium
+        statement:
+          en: "Check whether a major merge is overdue before considering a larger tenant memory limit — a stalled merge presents as memory pressure."
+          zh: "在考虑扩大租户内存上限之前，先确认 major merge 是否早该完成 —— 卡住的合并表现出来就是内存压力。"
+
+  - id: tenant-cpu-throttling
+    severity: major
+    title:
+      en: "Tenant throttled at its CPU limit"
+      zh: "租户被 CPU 上限限流"
+    explanation:
+      en: "A tenant is pinned at its assigned CPU and is being throttled rather than running slowly. Response times rise across every statement the tenant issues, including trivial ones, which distinguishes throttling from a single bad query."
+      zh: "某个租户贴死在其被分配的 CPU 上，是被限流而不是执行得慢。该租户发出的每一条语句（包括最简单的）响应时间都会上升 —— 这正是限流与“单条烂 SQL”的区别。"
+    symptoms: ["cpu", "slow", "throttle", "tenant", "unit", "限流", "租户", "变慢"]
+    indicators: ["tenant_cpu_usage at tenant_cpu_limit", "active_sessions rising", "sql_rt_avg rising"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare tenant CPU usage against the tenant's limit, not against the host's cores; the limit is what the scheduler enforces."
+          zh: "把租户 CPU 使用量与租户上限相比，而不是与宿主机核数相比；调度器强制执行的是前者。"
+      - risk: low
+        statement:
+          en: "Check whether simple statements slowed down too: uniform slowdown points at throttling, selective slowdown at a plan."
+          zh: "看看简单语句是否也变慢了：全面变慢指向限流，个别变慢指向执行计划。"
+      - risk: medium
+        statement:
+          en: "Weigh raising the tenant's unit configuration against the capacity the other tenants on the same observers still need."
+          zh: "在考虑提高该租户的资源单元配置时，权衡同一批 observer 上其他租户仍然需要的容量。"
+
+  - id: major-merge-delay
+    severity: major
+    title:
+      en: "Major merge delayed or failing"
+      zh: "major merge 延迟或失败"
+    explanation:
+      en: "A major merge is running far longer than usual or has failed. Until it completes, space from deleted and updated rows is not reclaimed and MemStore keeps filling behind it — so a merge problem eventually presents as a write problem, in a different tenant metric entirely."
+      zh: "一次 major merge 运行时间远超常态，或已经失败。在它完成之前，已删除与已更新行占用的空间不会被回收，MemStore 会在其身后持续填满 —— 于是合并问题最终会以写入问题的形式，出现在另一个完全不同的租户指标上。"
+    symptoms: ["merge", "compaction", "freeze", "disk", "space", "合并", "冻结", "磁盘", "空间"]
+    indicators: ["major_merge_lag high", "merge_error", "merge_failure in logs", "data_disk_ratio high"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check data-disk headroom first: a merge writes a new SSTable before releasing the old one and needs room for both."
+          zh: "先看数据盘余量：合并会在释放旧 SSTable 之前先写出新的，需要同时容纳两份的空间。"
+      - risk: low
+        statement:
+          en: "Establish whether the merge is slow or stopped; a stopped merge does not recover on its own and blocks the next one."
+          zh: "弄清合并是“慢”还是“停了”；停住的合并不会自行恢复，而且会阻塞下一次合并。"
+      - risk: medium
+        statement:
+          en: "Consider whether merge concurrency is competing with the foreground workload for the same observers."
+          zh: "考虑合并的并发度是否正在与前台业务争抢同一批 observer 的资源。"
+
+  - id: slow-sql
+    severity: major
+    title:
+      en: "Statements slow or timing out"
+      zh: "SQL 变慢或超时"
+    explanation:
+      en: "Response times rose for the statements that matter. The decisive question is whether throughput rose with them: at constant throughput a plan changed or the data grew, and adding capacity will not help. In a distributed database a remote-partition plan is a common cause, because it turns one local scan into an RPC per participant."
+      zh: "关键语句的响应时间上升了。决定性的问题是吞吐是否随之上升：若吞吐不变，那是执行计划变了或数据量长了，扩容并不会有帮助。在分布式数据库中，远程分区执行计划是常见原因 —— 它把一次本地扫描变成了对每个参与者的一次 RPC。"
+    symptoms: ["slow", "sql", "query", "timeout", "latency", "慢", "查询", "超时", "时延"]
+    indicators: ["sql_rt_avg rising", "slow_sql_count rising", "sql_qps", "slow_query in logs", "rpc_timeout in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare response time against throughput before anything else: latency rising at flat throughput is a plan or data change, not load."
+          zh: "在做任何其他事之前，先把响应时间与吞吐对照：吞吐持平而时延上升，是计划或数据变了，不是负载。"
+      - risk: low
+        statement:
+          en: "Look for remote-partition execution in the logged plan; a distributed statement waits on its slowest participant."
+          zh: "在日志记录的执行计划中查找远程分区执行；分布式语句要等最慢的那个参与者。"
+      - risk: medium
+        statement:
+          en: "Check whether statistics are stale for the affected tables — a plan built on stale statistics is wrong in a way that looks like load."
+          zh: "确认受影响表的统计信息是否已过期 —— 基于过期统计信息生成的计划，其错误表现得很像负载升高。"
+
+  - id: clog-sync-lag
+    severity: critical
+    title:
+      en: "Redo-log replication lagging"
+      zh: "redo 日志复制滞后"
+    explanation:
+      en: "Followers are behind the leader in redo-log replication. The lag is the exposure window: if the leader is lost now, everything written in that window is lost with it. Sustained lag also fills the leader's log disk, and OceanBase refuses writes rather than overwrite unreplicated log."
+      zh: "follower 在 redo 日志复制上落后于 leader。这段滞后就是暴露窗口：若此刻失去 leader，该窗口内写入的一切都会随之丢失。持续滞后还会填满 leader 的日志盘，而 OceanBase 宁可拒绝写入，也不会覆盖尚未复制的日志。"
+    symptoms: ["replication", "sync", "lag", "clog", "failover", "复制", "同步", "滞后", "切主"]
+    indicators: ["clog_sync_delay high", "clog_disk_ratio rising", "clog_sync_slow in logs", "leader_change in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Treat the lag as a data-loss window, not a performance number: it is how much a failover would cost right now."
+          zh: "把滞后看作数据丢失窗口，而不是一个性能数字：它就是此刻发生切主要付出的代价。"
+      - risk: low
+        statement:
+          en: "Check whether the lagging follower is a network problem or a disk problem; the log tells them apart and they need different responses."
+          zh: "确认滞后的 follower 是网络问题还是磁盘问题；日志可以区分二者，而两者的处理方向不同。"
+      - risk: high
+        statement:
+          en: "Reducing the replication requirement restores write availability by shrinking the durability guarantee; record it if you do it under pressure."
+          zh: "降低复制要求会以缩小持久性保证为代价恢复写入可用性；若在压力下这样做，请记录下来。"
+
+  - id: disk-pressure
+    severity: critical
+    title:
+      en: "Observer disk running out"
+      zh: "observer 磁盘即将耗尽"
+    explanation:
+      en: "An observer's data file or redo-log disk is filling. The two fail differently and must not be treated as one: a full log disk stops writes immediately to protect unreplicated log, while a full data file stops the next major merge, which then stops writes indirectly a while later."
+      zh: "某台 observer 的数据文件或 redo 日志盘正在写满。两者的故障方式不同，绝不能混为一谈：日志盘写满会立即停止写入以保护未复制的日志；数据文件写满则会阻断下一次 major merge，随后才间接地让写入停下来。"
+    symptoms: ["disk", "space", "full", "storage", "write", "磁盘", "空间", "写满", "存储"]
+    indicators: ["clog_disk_ratio high", "data_disk_ratio high", "clog_disk_full in logs", "merge_failure in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read the log disk and the data disk separately; they fill for different reasons and one filling says nothing about the other."
+          zh: "分别看日志盘与数据盘；它们写满的原因不同，其中一个写满并不能说明另一个的情况。"
+      - risk: low
+        statement:
+          en: "Check whether a lagging follower is holding log that cannot be recycled — the log disk fills from the slowest replica, not from write volume."
+          zh: "确认是否有滞后的 follower 导致日志无法回收 —— 日志盘是被最慢的副本填满的，而不是被写入量填满的。"
+      - risk: medium
+        statement:
+          en: "Consider whether an overdue major merge is what is holding data-file space, before adding capacity."
+          zh: "在扩容之前，先考虑是否是一次早该完成的 major merge 占着数据文件空间。"
+
+  - id: observer-unavailable
+    severity: critical
+    title:
+      en: "An observer is out of service"
+      zh: "有 observer 退出服务"
+    explanation:
+      en: "An observer left the cluster. Its partitions are served by replicas, so the cluster keeps answering — with reduced capacity and, for that partition set, no redundancy. Leadership changes during the transition make in-flight statements fail, which clients see as errors even though nothing is broken."
+      zh: "某台 observer 离开了集群。其分区由副本提供服务，因此集群仍能应答 —— 但容量下降，且该分区集合失去冗余。切换期间的主副本迁移会让正在执行的语句失败，客户端看到的是错误，尽管系统并未损坏。"
+    symptoms: ["down", "offline", "unavailable", "observer", "failover", "宕机", "离线", "不可用", "切主"]
+    indicators: ["rs_status", "server_down in logs", "leader_change in logs", "partition_leader_count changing"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Count the surviving replicas for the affected partitions before anything else: that number is what determines the current risk."
+          zh: "在做任何其他事之前，先数一下受影响分区还剩几个副本：这个数字决定了当前的风险。"
+      - risk: low
+        statement:
+          en: "Expect a burst of statement failures at the moment of leadership change; those are the transition, not a second fault."
+          zh: "在主副本切换的瞬间预期会有一批语句失败；那是切换本身，而不是第二个故障。"
+
+playbooks:
+  - id: oceanbase.cluster-health
+    title:
+      en: "Observer and merge health"
+      zh: "observer 与合并健康度"
+    description:
+      en: "Runs on every OceanBase diagnosis: are the observers in service, is a merge stuck, and are the disks holding?"
+      zh: "每次 OceanBase 诊断都会运行：observer 是否在服务、合并是否卡住、磁盘是否还撑得住？"
+    steps:
+      - id: collect-up
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:up}}" }
+          as: up
+      - id: collect-status
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:rs_status}}" }
+          as: status
+      - id: collect-merge
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:major_merge_lag}}" }
+          as: merge
+      - id: collect-mergeerr
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:merge_error}}" }
+          as: mergeerr
+      - id: collect-clogdisk
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:clog_disk_ratio}}" }
+          as: clogdisk
+      - id: collect-datadisk
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:data_disk_ratio}}" }
+          as: datadisk
+      - id: eval-down
+        evaluate: "up.empty or up.latest < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The observer could not be scraped during the window."
+              zh: "在该时间窗内无法抓取到该 observer。"
+            detail:
+              en: "Everything downstream of this is unreliable until it is resolved."
+              zh: "在此问题解决前，其下游的一切判断都不可靠。"
+        onFalse:
+          pass:
+            en: "The observer was reachable throughout the window."
+            zh: "在整个时间窗内该 observer 保持可达。"
+      - id: eval-outofservice
+        evaluate: "not status.empty and status.min < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "An observer was out of service during the window."
+              zh: "时间窗内有 observer 处于非服务状态。"
+            detail:
+              en: "Its partitions are served by replicas, so the cluster answers with reduced capacity and no redundancy for that set."
+              zh: "其分区由副本提供服务，因此集群仍能应答，但容量下降，且该分区集合没有冗余。"
+        onFalse:
+          pass:
+            en: "Every observer reported in service."
+            zh: "所有 observer 均报告处于服务状态。"
+      - id: eval-merge
+        evaluate: "(not mergeerr.empty and mergeerr.max > 0) or (not merge.empty and merge.max > 7200)"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "A major merge failed or has been running for more than two hours."
+              zh: "某次 major merge 失败，或已运行超过两小时。"
+            detail:
+              en: "Until it completes, space from deleted rows is not reclaimed and MemStore keeps filling behind it."
+              zh: "在它完成之前，已删除行占用的空间不会被回收，MemStore 会在其身后持续填满。"
+        onFalse:
+          pass:
+            en: "Major merge is completing normally."
+            zh: "major merge 正常完成。"
+      - id: eval-clogdisk
+        evaluate: "not clogdisk.empty and clogdisk.max > 0.8"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Redo-log disk utilisation exceeded 80%."
+              zh: "redo 日志盘使用率超过 80%。"
+            detail:
+              en: "OceanBase refuses writes rather than overwrite log a follower has not replicated, so this becomes a write outage."
+              zh: "OceanBase 宁可拒绝写入，也不会覆盖 follower 尚未复制的日志，因此这最终会变成写入中断。"
+        onFalse:
+          pass:
+            en: "Redo-log disk utilisation is within normal bounds."
+            zh: "redo 日志盘使用率处于正常范围。"
+      - id: conclude-disk
+        conclude:
+          failureMode: disk-pressure
+          when: "(not clogdisk.empty and clogdisk.max > 0.8) or (not datadisk.empty and datadisk.max > 0.85)"
+      - id: conclude-merge
+        conclude:
+          failureMode: major-merge-delay
+          when: "(not mergeerr.empty and mergeerr.max > 0) or (not merge.empty and merge.max > 7200)"
+      - id: conclude-server
+        conclude:
+          failureMode: observer-unavailable
+          when: "not status.empty and status.min < 1"
+
+  - id: oceanbase.tenant-resources
+    title:
+      en: "Tenant memory and CPU"
+      zh: "租户内存与 CPU"
+    matches: ["memory", "cpu", "tenant", "oom", "throttle", "slow", "内存", "租户", "限流", "变慢"]
+    description:
+      en: "Reads resources per tenant, because a tenant at its own limit is invisible in any cluster-level average."
+      zh: "按租户读取资源，因为一个顶到自身上限的租户，在任何集群级平均值中都看不见。"
+    steps:
+      - id: collect-mem
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:tenant_memory_ratio}}" }
+          as: mem
+      - id: collect-memstore
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:memstore_ratio}}" }
+          as: memstore
+      - id: collect-cpu
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:tenant_cpu_usage}}" }
+          as: cpu
+      - id: collect-cpulimit
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:tenant_cpu_limit}}" }
+          as: cpulimit
+      - id: collect-sessions
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:active_sessions}}" }
+          as: sessions
+      - id: eval-tenant-mem
+        evaluate: "not mem.empty and mem.max > 0.85"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "A tenant used more than 85% of its own memory limit."
+              zh: "某个租户使用了自身内存上限的 85% 以上。"
+            detail:
+              en: "Tenant limits are enforced independently, so this fails inside one tenant while the cluster looks healthy."
+              zh: "租户上限是各自独立强制执行的，因此这会在单个租户内部失败，而集群整体看起来健康。"
+        onFalse:
+          pass:
+            en: "Tenant memory is within normal bounds."
+            zh: "租户内存处于正常范围。"
+      - id: eval-memstore
+        evaluate: "not memstore.empty and memstore.max > 0.7"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Active MemStore exceeded 70% of its limit."
+              zh: "活跃 MemStore 超过其上限的 70%。"
+            detail:
+              en: "MemStore is released by a merge, so this reading is only meaningful alongside the merge state."
+              zh: "MemStore 靠合并来释放，因此这个读数只有与合并状态一起看才有意义。"
+        onFalse:
+          pass:
+            en: "MemStore utilisation is within normal bounds."
+            zh: "MemStore 使用率处于正常范围。"
+      - id: eval-cpu-throttle
+        evaluate: "not cpu.empty and not cpulimit.empty and cpu.max >= cpulimit.latest * 0.95 and cpulimit.latest > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "A tenant is pinned at its assigned CPU limit."
+              zh: "某个租户贴死在其被分配的 CPU 上限。"
+            detail:
+              en: "That is throttling rather than slow execution: every statement in the tenant slows, including trivial ones."
+              zh: "这是限流而不是执行变慢：该租户内的每条语句都会变慢，包括最简单的那些。"
+        onFalse:
+          pass:
+            en: "No tenant is at its CPU limit."
+            zh: "没有租户贴到其 CPU 上限。"
+      - id: eval-sessions
+        evaluate: "not sessions.empty and sessions.delta > 0 and sessions.latest > sessions.min * 2"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "Active sessions more than doubled during the window."
+              zh: "活跃会话数在时间窗内增长超过一倍。"
+            detail:
+              en: "Active sessions rise when statements take longer, whether or not more of them arrive."
+              zh: "只要语句执行变慢，即便请求量不变，活跃会话数也会上升。"
+      - id: conclude-mem
+        conclude:
+          failureMode: tenant-memory-exhaustion
+          when: "(not mem.empty and mem.max > 0.85) or (not memstore.empty and memstore.max > 0.9)"
+      - id: conclude-cpu
+        conclude:
+          failureMode: tenant-cpu-throttling
+          when: "not cpu.empty and not cpulimit.empty and cpu.max >= cpulimit.latest * 0.95 and cpulimit.latest > 0"
+
+  - id: oceanbase.sql-performance
+    title:
+      en: "SQL response time"
+      zh: "SQL 响应时间"
+    matches: ["slow", "sql", "query", "timeout", "latency", "transaction", "慢", "查询", "超时", "事务", "时延"]
+    description:
+      en: "Separates a plan or data change from extra load, and checks whether distributed execution is what the statements are waiting on."
+      zh: "区分“计划或数据变化”与“负载增加”，并检查语句是否在等待分布式执行。"
+    steps:
+      - id: collect-rt
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:sql_rt_avg}}" }
+          as: rt
+      - id: collect-qps
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:sql_qps}}" }
+          as: qps
+      - id: collect-slow
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:slow_sql_count}}" }
+          as: slow
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 300 }
+          as: logs
+      - id: eval-rt
+        evaluate: "not rt.empty and rt.max > 0.5"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Average SQL response time exceeded 500 ms."
+              zh: "SQL 平均响应时间超过 500 毫秒。"
+            detail:
+              en: "An average this high means the slow statements are not a small tail but the common case."
+              zh: "平均值都这么高，说明慢语句不是少量长尾，而是普遍情况。"
+        onFalse:
+          pass:
+            en: "Average SQL response time is within normal bounds."
+            zh: "SQL 平均响应时间处于正常范围。"
+      - id: eval-plan-change
+        evaluate: "not rt.empty and not qps.empty and rt.delta > 0 and qps.delta <= 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.75
+            statement:
+              en: "Response time rose while throughput did not."
+              zh: "吞吐没有上升，响应时间却上升了。"
+            detail:
+              en: "At constant throughput the cause is a plan or the data, not demand, so adding capacity would not help."
+              zh: "吞吐不变时，原因在执行计划或数据本身，而不在需求，因此扩容不会有帮助。"
+      - id: eval-slow-count
+        evaluate: "not slow.empty and slow.delta > 0 and slow.latest > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "The rate of statements crossing the slow-query threshold grew during the window."
+              zh: "越过慢查询阈值的语句速率在时间窗内增长。"
+            detail:
+              en: "The logged plan for those statements usually separates a bad plan from a genuinely large scan."
+              zh: "这些语句在日志中记录的执行计划，通常足以区分“计划走错”与“扫描量本来就大”。"
+        onFalse:
+          pass:
+            en: "Slow-statement rate is stable."
+            zh: "慢语句速率保持稳定。"
+      - id: eval-rpc
+        evaluate: "not logs.empty and countMatching(logs.lines, 'OB_TIMEOUT|OB_RPC_CONNECT_ERROR|OB_TRANS_TIMEOUT') > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Statements timed out at the RPC or transaction layer."
+              zh: "语句在 RPC 层或事务层发生超时。"
+            detail:
+              en: "A distributed statement is only as fast as its slowest participant, so the timeout may name the wrong observer."
+              zh: "分布式语句的快慢取决于最慢的参与者，因此超时报出的 observer 可能并不是真正的问题所在。"
+      - id: conclude-slow
+        conclude:
+          failureMode: slow-sql
+          when: "(not rt.empty and rt.max > 0.5) or (not slow.empty and slow.delta > 0 and slow.latest > 0)"
+
+  - id: oceanbase.replication
+    title:
+      en: "Redo-log replication and leadership"
+      zh: "redo 日志复制与主副本"
+    matches: ["replication", "sync", "lag", "failover", "leader", "clog", "复制", "同步", "滞后", "切主"]
+    description:
+      en: "Measures the failover exposure window and checks whether leadership moved during the incident."
+      zh: "度量切主时的数据暴露窗口，并检查故障期间主副本是否发生过迁移。"
+    steps:
+      - id: collect-delay
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:clog_sync_delay}}" }
+          as: delay
+      - id: collect-clogdisk
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:clog_disk_ratio}}" }
+          as: clogdisk
+      - id: collect-partitions
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:partition_leader_count}}" }
+          as: partitions
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 300 }
+          as: logs
+      - id: eval-delay
+        evaluate: "not delay.empty and delay.max > 5"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "Redo-log replication delay exceeded 5 s."
+              zh: "redo 日志复制延迟超过 5 秒。"
+            detail:
+              en: "That delay is the data-loss window: losing the leader now would lose everything written within it."
+              zh: "这段延迟就是数据丢失窗口：此刻失去 leader，其中写入的一切都会丢失。"
+        onFalse:
+          pass:
+            en: "Redo-log replication delay is within normal bounds."
+            zh: "redo 日志复制延迟处于正常范围。"
+      - id: eval-clog-growth
+        evaluate: "not clogdisk.empty and clogdisk.delta > 0 and clogdisk.latest > 0.6"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.75
+            statement:
+              en: "Redo-log disk usage grew across the window and is already past 60%."
+              zh: "redo 日志盘使用率在时间窗内持续增长，且已超过 60%。"
+            detail:
+              en: "The log disk fills from the slowest replica, not from write volume, so a lagging follower is the first thing to check."
+              zh: "日志盘是被最慢的副本填满的，而不是被写入量填满的，因此首先要查的是滞后的 follower。"
+      - id: eval-leader-change
+        evaluate: "not logs.empty and countMatching(logs.lines, 'leader.*revoke|switch leader|takeover') > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Partition leadership changed during the window."
+              zh: "时间窗内分区主副本发生过迁移。"
+            detail:
+              en: "In-flight statements on the old leader fail at the moment of change; clients see errors even though nothing is broken."
+              zh: "切换瞬间旧 leader 上正在执行的语句会失败；客户端会看到错误，尽管系统并未损坏。"
+        onFalse:
+          pass:
+            en: "No leadership changes in the log."
+            zh: "日志中没有主副本迁移记录。"
+      - id: eval-partition-move
+        evaluate: "not partitions.empty and partitions.min < partitions.max"
+        onTrue:
+          finding:
+            severity: minor
+            confidence: 0.6
+            statement:
+              en: "The partition count on this observer changed during the window."
+              zh: "该 observer 上的分区数在时间窗内发生了变化。"
+            detail:
+              en: "Partitions moving re-routes traffic, which can shift a load problem from one observer to another."
+              zh: "分区迁移会改变流量路由，可能把负载问题从一台 observer 转移到另一台。"
+      - id: conclude-clog
+        conclude:
+          failureMode: clog-sync-lag
+          when: "(not delay.empty and delay.max > 5) or (not clogdisk.empty and clogdisk.delta > 0 and clogdisk.latest > 0.6)"
+      - id: conclude-leader
+        conclude:
+          failureMode: observer-unavailable
+          when: "not logs.empty and countMatching(logs.lines, 'is down|permanent offline|OB_SERVER_IS_STOPPING') > 0"
+
+# No inspect commands ship for OceanBase. obclient is a full SQL client, not a
+# read-only inspection binary: the guard cannot tell a SELECT from a DELETE
+# inside a -e argument, so allow-listing it would create exactly the hole
+# deny-by-default exists to prevent (design-lld.md §4). Metrics and logs cover
+# the failure modes above; the gap is recorded rather than papered over.
+
+source:
+  repos: ["https://github.com/oceanbase/oceanbase"]

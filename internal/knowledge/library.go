@@ -67,6 +67,11 @@ func Load(embedded fs.FS, extraDirs []string) (*Library, error) {
 		}
 	}
 
+	// Overriding a shipped pack is supported and deliberate. Two *local* packs
+	// claiming the same id is not: which one wins would depend on directory
+	// order, so the collision is reported rather than resolved silently.
+	fromDir := map[string]string{}
+
 	for _, dir := range extraDirs {
 		if strings.TrimSpace(dir) == "" {
 			continue
@@ -88,6 +93,12 @@ func Load(embedded fs.FS, extraDirs []string) (*Library, error) {
 				l.problems = append(l.problems, perr)
 				return nil
 			}
+			if prev, clash := fromDir[p.ID()]; clash {
+				l.problems = append(l.problems, errs.New("MAS-5002", p.ID()+
+					" (in "+prev+" and "+path+")"))
+				return nil
+			}
+			fromDir[p.ID()] = path
 			byID[p.ID()] = p // user packs override embedded ones
 			return nil
 		})

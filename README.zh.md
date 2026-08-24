@@ -2,7 +2,7 @@
 
 **面向开源中间件的只读诊断型多 Agent 系统。**
 
-[English](./README.md) · [用户手册](./docs/zh/user-manual.md) · [配置参考](./docs/zh/configuration.md) · [错误码](./docs/zh/error-codes.md)
+[English](./README.md) · [用户手册](./docs/zh/user-manual.md) · [配置参考](./docs/zh/configuration.md) · [知识包编写](./docs/zh/knowledge-packs.md) · [错误码](./docs/zh/error-codes.md)
 
 ---
 
@@ -85,7 +85,7 @@ Redis 已达到其配置的内存上限。驱逐先于延迟上升发生，且�
 
 | | 状态 |
 |---|---|
-| **中间件** | 已内置 Redis 与 Kafka 知识包；MongoDB、Pulsar、Milvus、OceanBase 属于纯知识包工作 —— Schema 已支持，你现在就可以自己编写 |
+| **中间件** | 已内置 Redis、Kafka、MongoDB、Pulsar、Milvus、OceanBase 知识包。其余中间件属于纯知识包工作：见[知识包编写指南](./docs/zh/knowledge-packs.md) —— 不改 Go 代码、不需重新编译 |
 | **遥测** | Prometheus、VictoriaMetrics、Thanos、Mimir；Loki |
 | **环境** | Kubernetes（只读 API）；本地主机 |
 | **源码** | 网络仓库并在不可达时自动回退到本地镜像，另含代码检索 |

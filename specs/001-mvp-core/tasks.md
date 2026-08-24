@@ -41,7 +41,7 @@ A task is `done` only when its test passes (Art. VI.2).
 | T020 | `internal/knowledge`: pack types, schema validation, loader, embed | FR-007, NFR-007 | `TestSchemaViolations`, `TestUserDirOverrides`, `TestVersionRange`, `TestBilingualPackFields` | T003 | done |
 | T021 | Redis knowledge pack (signals, log patterns, failure modes, playbooks, inspect) | G2.2 | `TestEmbeddedPacksValid`, `TestRedisPackConformance` | T020 | done |
 | T022 | Kafka knowledge pack | G2.2 | `TestKafkaPackConformance` | T020 | done |
-| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008, NFR-002 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds` | T020, T010 | done |
+| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008, NFR-002 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds`, `TestRegexLiteralsAreNotSlotReferences`, `TestEmptyMetricIsNotReportedAsPassed`, `TestDeliberateEmptyReadingStillFires` | T020, T010 | done |
 | **G-C** | **Gate C** | | `go test ./internal/knowledge/... ./internal/rules/...` green | | done |
 
 ## Phase D — Reasoning layer

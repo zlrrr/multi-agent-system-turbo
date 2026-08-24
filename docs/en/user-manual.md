@@ -388,8 +388,6 @@ Honest scope, so you can plan around it:
 
 - **In-container command execution** (Redis `INFO` inside a pod) — the local host
   adapter does this today; the Kubernetes `exec` path is the next milestone.
-- **Knowledge packs for MongoDB, Pulsar, Milvus and OceanBase** — the schema
-  supports them and you can write your own now; ours are in progress.
 - **Additional topologies** (`plan-execute`, `debate`, `blackboard`) — the
   registry is ready for them.
 - **API authentication** — do not expose the API outside a trusted network yet.

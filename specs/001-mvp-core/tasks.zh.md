@@ -41,7 +41,7 @@
 | T020 | `internal/knowledge`：知识包类型、Schema 校验、加载器、embed | FR-007、NFR-007 | `TestSchemaViolations`、`TestUserDirOverrides`、`TestVersionRange`、`TestBilingualPackFields` | T003 | done |
 | T021 | Redis 知识包（信号、日志模式、失效模式、剧本、巡检命令） | G2.2 | `TestEmbeddedPacksValid`、`TestRedisPackConformance` | T020 | done |
 | T022 | Kafka 知识包 | G2.2 | `TestKafkaPackConformance` | T020 | done |
-| T023 | `internal/rules`：剧本引擎、沙箱表达式、结论产出 | FR-008、NFR-002 | `TestPlaybookHappyPath`、`TestMissingEvidenceSkips`、`TestExpressionErrorsCoded`、`TestZeroLLMCalls`、`TestUnder2Seconds` | T020、T010 | done |
+| T023 | `internal/rules`：剧本引擎、沙箱表达式、结论产出 | FR-008、NFR-002 | `TestPlaybookHappyPath`、`TestMissingEvidenceSkips`、`TestExpressionErrorsCoded`、`TestZeroLLMCalls`、`TestUnder2Seconds`、`TestRegexLiteralsAreNotSlotReferences`、`TestEmptyMetricIsNotReportedAsPassed`、`TestDeliberateEmptyReadingStillFires` | T020、T010 | done |
 | **G-C** | **闸门 C** | | `go test ./internal/knowledge/... ./internal/rules/...` 全绿 | | done |
 
 ## 阶段 D —— 推理层

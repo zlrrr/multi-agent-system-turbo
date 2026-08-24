@@ -80,7 +80,7 @@
 | 错误码 | 严重级别 | 符号 | 含义 | 处理建议 |
 |---|---|---|---|---|
 | `MAS-5001` | error | `PackSchemaViolation` | 知识包 %s 在 %s 处非法：%s | 对照 docs/zh/knowledge-packs.md 修正该包后重新加载。 |
-| `MAS-5002` | error | `PackDuplicate` | 知识包 id %q 重复 | 知识包 id 在内置目录与用户目录之间必须唯一。 |
+| `MAS-5002` | error | `PackDuplicate` | 知识包 id %q 重复 | knowledge.pack_dirs 下有两个知识包声明了相同的 id，谁生效将取决于目录顺序。请重命名其中之一，或删除不再使用的那份。覆盖内置知识包是被支持的，不属于此错误。 |
 | `MAS-5003` | warn | `PackNotFound` | 中间件 %q 没有对应的知识包 | 在 knowledge.pack_dirs 下新增知识包；否则仅执行通用检查。 |
 | `MAS-5004` | error | `PackVersionRangeInvalid` | 知识包 %s 的版本区间 %q 非法 | 请使用形如 ">=5.0"、"<7"、">=5.0 <8.0" 的区间。 |
 | `MAS-5005` | error | `PackReadFailed` | 知识包 %s 无法读取：%s | 检查知识包目录的文件权限。 |
@@ -89,6 +89,7 @@
 | `MAS-5012` | error | `SignalUnknown` | 剧本 %s 引用了未知信号 %q | 在同一知识包的 `signals:` 下声明该信号。 |
 | `MAS-5013` | warn | `PlaybookBudgetExceeded` | 剧本 %s 超出其步数预算 %d | 拆分该剧本，或提高 run.budget.max_steps。 |
 | `MAS-5014` | error | `PlaybookStepInvalid` | 剧本 %s 的步骤 %s 非法：%s | 每个步骤必须且只能声明 collect、evaluate、conclude 之一。 |
+| `MAS-5015` | warn | `CheckNotPerformed` | 剧本 %s 的步骤 %s 已跳过：%s | 该检查没有可读取的数据，因此其故障模式既未被确认也未被排除。请确认该信号在当前部署中存在。 |
 
 ## 运行存储
 

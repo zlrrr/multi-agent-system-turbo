@@ -224,8 +224,8 @@ var definitions = []Definition{
 		"对照 docs/zh/knowledge-packs.md 修正该包后重新加载。"},
 	{"MAS-5002", "PackDuplicate", SeverityError,
 		"duplicate knowledge pack id %q", "知识包 id %q 重复",
-		"Pack ids must be unique across embedded and user pack directories.",
-		"知识包 id 在内置目录与用户目录之间必须唯一。"},
+		"Two packs under knowledge.pack_dirs claim the same id, so which one wins would depend on directory order. Rename one, or delete the copy you no longer use. Overriding a built-in pack is supported and is not this error.",
+		"knowledge.pack_dirs 下有两个知识包声明了相同的 id，谁生效将取决于目录顺序。请重命名其中之一，或删除不再使用的那份。覆盖内置知识包是被支持的，不属于此错误。"},
 	{"MAS-5003", "PackNotFound", SeverityWarn,
 		"no knowledge pack for middleware %q", "中间件 %q 没有对应的知识包",
 		"Add a pack under knowledge.pack_dirs; analysis proceeds with generic checks only.",
@@ -258,6 +258,10 @@ var definitions = []Definition{
 		"playbook %s step %s is invalid: %s", "剧本 %s 的步骤 %s 非法：%s",
 		"A step must declare exactly one of collect, evaluate or conclude.",
 		"每个步骤必须且只能声明 collect、evaluate、conclude 之一。"},
+	{"MAS-5015", "CheckNotPerformed", SeverityWarn,
+		"playbook %s step %s was skipped: %s", "剧本 %s 的步骤 %s 已跳过：%s",
+		"The check had no data to read, so its failure mode is neither confirmed nor ruled out. Check that the signal exists in this deployment.",
+		"该检查没有可读取的数据，因此其故障模式既未被确认也未被排除。请确认该信号在当前部署中存在。"},
 
 	// ── 6xxx · storage ──────────────────────────────────────────────────────
 	{"MAS-6001", "RunNotFound", SeverityError,

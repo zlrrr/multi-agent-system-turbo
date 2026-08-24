@@ -6,7 +6,7 @@ feature: 001-mvp-core
 artifacts:
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.1.0
+    version: 1.1.1
     upstream: null
     derived_from_version: null
   - id: spec
@@ -15,7 +15,7 @@ artifacts:
     path: spec.md
     version: 1.0.0
     upstream: goals
-    derived_from_version: 1.1.0
+    derived_from_version: 1.1.1
   - id: plan
     path: plan.md
     version: 1.0.0
@@ -28,12 +28,14 @@ artifacts:
     derived_from_version: 1.0.0
   - id: lld
     path: design-lld.md
-    version: 1.0.1
+    version: 1.0.2
     upstream: hld
     derived_from_version: 1.0.0
   - id: tasks
-    # Re-reviewed against lld 1.0.1: the exec-plugin decision changes no task.
+    # Re-reviewed against lld 1.0.2: the two engine corrections change no task —
+    # both are covered by T023's rule-engine test checkpoint, which now also
+    # carries the regression tests that pin them.
     path: tasks.md
     version: 1.0.0
     upstream: lld
-    derived_from_version: 1.0.1
+    derived_from_version: 1.0.2
