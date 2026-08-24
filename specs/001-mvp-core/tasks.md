@@ -18,7 +18,7 @@ A task is `done` only when its test passes (Art. VI.2).
 | T004 | `internal/config`: model, load/merge precedence, `Secret`, validation | FR-001, FR-016 | `TestPrecedence`, `TestValidateCodes`, `TestSecretNeverSerialises`, `TestResolveRefs` | T002 | done |
 | T005 | `internal/safety`: `Redactor` | FR-016 | `TestRedactPatterns`, `TestRedactNestedAny` | T004 | done |
 | T006 | `internal/safety`: `Guard` — six checks, deny-by-default | FR-006, CON-001, CON-002 | `TestGuardAdversarial` (≥30 hostile inputs), `TestGuardCannotBeWidened` | T005 | done |
-| T007 | `internal/obs`: slog setup, redacting handler, run context, self-metrics | FR-017, G11.4 | `TestRunIDPropagates`, `TestHandlerRedacts`, `TestPromExposition` | T005 | done |
+| T007 | `internal/obs`: slog setup, redacting handler, run context, self-metrics | FR-017, NFR-008, G11.4 | `TestRunIDPropagates`, `TestHandlerRedacts`, `TestPromExposition` | T005 | done |
 | **G-A** | **Gate A** | | `go test ./pkg/... ./internal/errs/... ./internal/core/... ./internal/config/... ./internal/safety/... ./internal/obs/...` green | | done |
 
 ## Phase B — Capability layer
@@ -27,8 +27,8 @@ A task is `done` only when its test passes (Art. VI.2).
 |---|---|---|---|---|---|
 | T010 | `internal/tool`: `Tool`, `Schema`, `Registry`, guarded `Invoker` | FR-006 | `TestInvokerValidatesArgs`, `TestGuardRefusalBecomesGap`, `TestTimeoutBecomesCeilingCode` | T006 | done |
 | T011 | Structural safety tests: `TestNoUnguardedIO`, no `sh -c` in tree | NFR-003 | both tests green | T010 | done |
-| T012 | `collector/promql` client + 3 tools [P] | FR-003 | `TestInstant`, `TestRange`, `TestSeries`, `TestAuthHeaders`, `TestTruncation`, `TestErrorMapping` | T010 | done |
-| T013 | `collector/loki` client + 2 tools [P] | FR-004 | `TestQuery`, `TestLimit`, `TestLabels`, `TestErrorMapping` | T010 | done |
+| T012 | `collector/promql` client + 3 tools [P] | FR-003, NFR-004 | `TestInstant`, `TestRange`, `TestSeries`, `TestAuthHeaders`, `TestTruncation`, `TestErrorMapping` | T010 | done |
+| T013 | `collector/loki` client + 2 tools [P] | FR-004, NFR-004 | `TestQuery`, `TestLimit`, `TestLabels`, `TestErrorMapping` | T010 | done |
 | T014 | `envadapter/kube` read-only REST client + 5 tools [P] | FR-005 | `TestListPods`, `TestPodLogs`, `TestEvents`, `TestNodes`, `TestAuthModes`, `TestKubeClientHasNoMutatingMethods` | T010 | done |
 | T015 | `envadapter/local` host inspection + 4 tools [P] | FR-021 | `TestProcesses`, `TestPorts`, `TestInspectAllowListed`, `TestInspectRefusesMutating` | T010 | done |
 | T016 | `internal/source` fetch with network→local fallback + search + 2 tools | FR-022, FR-023 | `TestFallbackOnUnreachable`, `TestNoMirrorGap`, `TestCacheHitSkipsNetwork`, `TestSearchFixture` | T010 | done |
@@ -38,10 +38,10 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T020 | `internal/knowledge`: pack types, schema validation, loader, embed | FR-007 | `TestSchemaViolations`, `TestUserDirOverrides`, `TestVersionRange`, `TestBilingualPackFields` | T003 | done |
+| T020 | `internal/knowledge`: pack types, schema validation, loader, embed | FR-007, NFR-007 | `TestSchemaViolations`, `TestUserDirOverrides`, `TestVersionRange`, `TestBilingualPackFields` | T003 | done |
 | T021 | Redis knowledge pack (signals, log patterns, failure modes, playbooks, inspect) | G2.2 | `TestEmbeddedPacksValid`, `TestRedisPackConformance` | T020 | done |
 | T022 | Kafka knowledge pack | G2.2 | `TestKafkaPackConformance` | T020 | done |
-| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds` | T020, T010 | done |
+| T023 | `internal/rules`: playbook engine, sandboxed expressions, findings | FR-008, NFR-002 | `TestPlaybookHappyPath`, `TestMissingEvidenceSkips`, `TestExpressionErrorsCoded`, `TestZeroLLMCalls`, `TestUnder2Seconds` | T020, T010 | done |
 | **G-C** | **Gate C** | | `go test ./internal/knowledge/... ./internal/rules/...` green | | done |
 
 ## Phase D — Reasoning layer
@@ -49,7 +49,7 @@ A task is `done` only when its test passes (Art. VI.2).
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
 | T030 | `internal/llm`: types, `Provider`, registry, budget accounting | FR-010, FR-019 | `TestRegistryOpen`, `TestUnknownProviderCoded` | T004 | done |
-| T031 | `llm/mock` scripted deterministic provider | Art. VI.3, NFR-010 | `TestMockDeterminism`, `TestMockToolSequence` | T030 | done |
+| T031 | `llm/mock` scripted deterministic provider | Art. VI.3, NFR-006, NFR-010 | `TestMockDeterminism`, `TestMockToolSequence` | T030 | done |
 | T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`, `TestAnthropicErrorMapping`, `TestAPIKeyRedactedInErrors` | T030 | done |
 | T033 | `llm/openai` (OpenAI-compatible) [P] | FR-010 | `TestOpenAIToolRoundTrip`, `TestBaseURLOverride`, `TestOpenAIErrorMapping` | T030 | done |
 | T034 | `internal/agent`: `State`, budgets, `toolLoop`, prompt templates | FR-009, FR-019 | `TestBudgetEnforced`, `TestInvalidToolCallRepairThenGap` | T031, T010 | done |
@@ -64,7 +64,7 @@ A task is `done` only when its test passes (Art. VI.2).
 |---|---|---|---|---|---|
 | T040 | `internal/report`: Markdown (en/zh) + JSON renderers | FR-011 | golden-file tests for all four outputs | T003 | done |
 | T041 | `internal/store`: `RunStore`, `fs`, `memory` | FR-012 | `TestFSRoundTrip`, `TestAppendOnly`, `TestCorruptDetected`, `TestList` | T003 | done |
-| T042 | `internal/service`: admission, two-phase pipeline, short-circuit, degradation, accounting | FR-001, FR-002, FR-008, FR-013, FR-019 | `TestAdmissionCodes`, `TestShortCircuit`, `TestAllSourcesDownStillCompletes`, `TestEndToEndUnder5s`, `TestDeterminism` | T023, T037, T041 | done |
+| T042 | `internal/service`: admission, two-phase pipeline, short-circuit, degradation, accounting | FR-001, FR-002, FR-008, FR-013, FR-019, NFR-001 | `TestAdmissionCodes`, `TestShortCircuit`, `TestAllSourcesDownStillCompletes`, `TestEndToEndUnder5s`, `TestDeterminism` | T023, T037, T041 | done |
 | T043 | Replay | FR-012 | `TestReplayWithoutNetwork` | T042 | done |
 | **G-E** | **Gate E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` green | | done |
 
@@ -72,16 +72,16 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T050 | `internal/cli`: all subcommands, global flags, output formats | FR-014 | smoke test per subcommand | T042 | todo |
-| T051 | `mas doctor` checks across config, telemetry, env, LLM, packs, source | FR-018 | `TestDoctorAgainstStubs` | T050 | todo |
-| T052 | `internal/httpapi`: endpoints, health, `/metrics`, error mapping | FR-015 | one test per endpoint incl. 4xx paths | T042 | todo |
-| **G-F** | **Gate F** | | `go test ./internal/cli/... ./internal/httpapi/...` green | | todo |
+| T050 | `internal/cli`: all subcommands, global flags, output formats | FR-014 | smoke test per subcommand | T042 | done |
+| T051 | `mas doctor` checks across config, telemetry, env, LLM, packs, source | FR-018 | `TestDoctorAgainstStubs` | T050 | done |
+| T052 | `internal/httpapi`: endpoints, health, `/metrics`, error mapping | FR-015 | one test per endpoint incl. 4xx paths | T042 | done |
+| **G-F** | **Gate F** | | `go test ./internal/cli/... ./internal/httpapi/...` green | | done |
 
 ## Phase G — Delivery
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T060 | `cmd/sddctl`: bilingual parity, traceability staleness, requirement coverage | NFR-009, G13 | `TestParityDetectsMissingZH`, `TestStalenessDetected`, `TestCoverageGap`; `make sdd-verify` green | T001 | todo |
+| T060 | `cmd/sddctl`: bilingual parity, traceability staleness, requirement coverage | NFR-009, G13 | `TestParityDetectsMissingZH`, `TestStalenessDetected`, `TestCoverageGap`; `make sdd-verify` green | T001 | done |
 | T061 | Multi-stage `Dockerfile`, non-root, `docker-compose` example | FR-020, NFR-005 | image builds; `docker run … version` and `… diagnose` succeed | T050 | todo |
 | T062 | `.github/workflows/ci.yml`: fmt, vet, lint, test `-race`, build matrix, sdd-verify | Art. VIII.2 | workflow green | T060 | todo |
 | T063 | `.github/workflows/release.yml`: tag → binaries + checksums + image | FR-020, G12.2 | dry-run on a tag produces artifacts | T062 | todo |

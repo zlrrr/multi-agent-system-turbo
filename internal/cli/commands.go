@@ -1,0 +1,651 @@
+package cli
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/httpapi"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/llm"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/report"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
+	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
+)
+
+func newDiagnoseCmd(e *env) *cobra.Command {
+	var (
+		target, symptom, since, from, to string
+		mode, topology, format, output   string
+		forceAgents                      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "diagnose",
+		Short: "Analyse a runtime problem in a configured middleware target",
+		Long: `Runs a diagnosis: deterministic playbook checks first, then — only where those
+are inconclusive — a multi-agent investigation over the same evidence.
+
+Every recommendation in the report is advisory. MAS-Turbo performs no action
+against the target.`,
+		Example: `  mas diagnose --target redis-prod --symptom "p99 latency spike" --since 1h
+  mas diagnose --target kafka-prod --symptom "consumer lag growing" --topology single
+  mas diagnose --target redis-prod --symptom "OOM errors" --mode online --format json`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			req := core.DiagnoseRequest{
+				Target: target, Symptom: symptom,
+				Mode: core.Mode(mode), Topology: topology, Language: e.g.language,
+			}
+			if req.Window, err = parseWindow(since, from, to); err != nil {
+				return err
+			}
+			if forceAgents {
+				req.Options = map[string]string{"force_agents": "true"}
+			}
+
+			rep, err := svc.Diagnose(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+			return emitReport(e, rep, format, output, svc.Config().Run.Language)
+		},
+	}
+	f := cmd.Flags()
+	f.StringVarP(&target, "target", "t", "", "target id from the configuration (required)")
+	f.StringVarP(&symptom, "symptom", "s", "", "what you observed, in your own words (required)")
+	f.StringVar(&since, "since", "", "look back this far, e.g. 30m, 1h, 24h (default: run.default_window)")
+	f.StringVar(&from, "from", "", "window start as RFC3339")
+	f.StringVar(&to, "to", "", "window end as RFC3339")
+	f.StringVar(&mode, "mode", "", "offline (telemetry only) or online (also read the live environment)")
+	f.StringVar(&topology, "topology", "", "agent topology: run `mas topologies` to list")
+	f.StringVarP(&format, "format", "f", "markdown", "output format: markdown, json or text")
+	f.StringVarP(&output, "output", "o", "", "write the report to a file instead of stdout")
+	f.BoolVar(&forceAgents, "force-agents", false, "run the agent phase even when a deterministic check is conclusive")
+	_ = cmd.MarkFlagRequired("target")
+	_ = cmd.MarkFlagRequired("symptom")
+	return cmd
+}
+
+func parseWindow(since, from, to string) (core.Window, error) {
+	var w core.Window
+	if from != "" || to != "" {
+		if from == "" || to == "" {
+			return w, errs.New("MAS-1010", "--from and --to must be given together")
+		}
+		f, err := time.Parse(time.RFC3339, from)
+		if err != nil {
+			return w, errs.New("MAS-1010", "--from must be RFC3339, got "+from)
+		}
+		t, err := time.Parse(time.RFC3339, to)
+		if err != nil {
+			return w, errs.New("MAS-1010", "--to must be RFC3339, got "+to)
+		}
+		w.From, w.To = f, t
+		return w, w.Validate()
+	}
+	if since != "" {
+		d, err := time.ParseDuration(since)
+		if err != nil {
+			return w, errs.New("MAS-1010", "--since must be a duration such as 1h, got "+since)
+		}
+		if d <= 0 {
+			return w, errs.New("MAS-1010", "--since must be positive")
+		}
+		now := time.Now().UTC()
+		w.From, w.To = now.Add(-d), now
+	}
+	return w, nil // an empty window is filled in by admission
+}
+
+func emitReport(e *env, rep *core.Report, format, output, lang string) error {
+	var (
+		body []byte
+		err  error
+	)
+	switch strings.ToLower(format) {
+	case "json":
+		body, err = report.JSON(rep)
+	case "text", "txt":
+		body, err = report.Text(rep, lang)
+	case "markdown", "md", "":
+		body, err = report.Markdown(rep, lang)
+	default:
+		return errs.New("MAS-1007", fmt.Sprintf("format %q is not one of markdown, json, text", format))
+	}
+	if err != nil {
+		return err
+	}
+	if output == "" {
+		_, err = e.out.Write(body)
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil && filepath.Dir(output) != "." {
+		return errs.Wrap(err, "MAS-6002", output, err.Error())
+	}
+	if err := os.WriteFile(output, body, 0o640); err != nil {
+		return errs.Wrap(err, "MAS-6002", output, err.Error())
+	}
+	fmt.Fprintf(e.out, "report written to %s (run %s)\n", output, rep.RunID)
+	return nil
+}
+
+func newServeCmd(e *env) *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run the HTTP API",
+		Long: `Serves the diagnosis API, health endpoints and Prometheus self-metrics.
+
+Endpoints:
+  POST /api/v1/diagnoses            create a diagnosis (?wait=true to block)
+  GET  /api/v1/diagnoses            list runs
+  GET  /api/v1/diagnoses/{id}       fetch a run and its report
+  GET  /api/v1/targets              configured targets
+  GET  /api/v1/topologies           available topologies
+  GET  /api/v1/packs                loaded knowledge packs
+  GET  /healthz  /readyz  /metrics`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+			if addr != "" {
+				svc.Config().Server.Addr = addr
+			}
+			fmt.Fprintf(e.out, "listening on %s\n", svc.Config().Server.Addr)
+			return httpapi.Serve(cmd.Context(), svc)
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", "", "listen address, e.g. :8080")
+	return cmd
+}
+
+func newDoctorCmd(e *env) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Validate the configuration and probe every configured endpoint",
+		Long: `Checks the configuration, the knowledge packs, the safety guard, every telemetry
+source, every environment, the model provider and the run store — and reports all
+of them, not just the first problem.
+
+Exit status is non-zero if any check fails outright.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			results := svc.Doctor(cmd.Context())
+			if asJSON {
+				if err := writeJSON(e.out, results); err != nil {
+					return err
+				}
+			} else {
+				w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+				fmt.Fprintln(w, "STATUS\tCHECK\tDETAIL")
+				for _, r := range results {
+					detail := r.Detail
+					if r.Code != "" {
+						detail = r.Code + "  " + detail
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\n", statusGlyph(r.Status), r.Name, detail)
+				}
+				_ = w.Flush()
+				for _, r := range results {
+					if r.Status == service.CheckFail && r.Remedy != "" {
+						fmt.Fprintf(e.out, "\n%s: %s\n", r.Name, r.Remedy)
+					}
+				}
+			}
+			if !service.DoctorOK(results) {
+				return errs.New("MAS-1003", "doctor", "one or more checks failed")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func statusGlyph(s service.CheckStatus) string {
+	switch s {
+	case service.CheckOK:
+		return "ok"
+	case service.CheckWarn:
+		return "warn"
+	case service.CheckFail:
+		return "FAIL"
+	default:
+		return "skip"
+	}
+}
+
+func newReplayCmd(e *env) *cobra.Command {
+	var format, output string
+	var withSteps bool
+	cmd := &cobra.Command{
+		Use:   "replay <run-id>",
+		Short: "Reproduce a stored run's report without contacting anything",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			if withSteps {
+				rec, err := svc.Run(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return writeJSON(e.out, rec)
+			}
+			rep, err := svc.Replay(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emitReport(e, rep, format, output, svc.Config().Run.Language)
+		},
+	}
+	cmd.Flags().StringVarP(&format, "format", "f", "markdown", "output format: markdown, json or text")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "write to a file instead of stdout")
+	cmd.Flags().BoolVar(&withSteps, "steps", false, "print the full run record including every step")
+	return cmd
+}
+
+func newRunsCmd(e *env) *cobra.Command {
+	var limit int
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "runs",
+		Short: "List stored diagnostic runs, newest first",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			runs, err := svc.Runs(cmd.Context(), limit)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return writeJSON(e.out, runs)
+			}
+			if len(runs) == 0 {
+				fmt.Fprintln(e.out, "no runs stored yet")
+				return nil
+			}
+			w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "RUN\tSTATUS\tTARGET\tTOPOLOGY\tHYPOTHESES\tSTARTED\tSYMPTOM")
+			for _, r := range runs {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+					r.ID, r.Status, r.Target, r.Topology, r.Hypotheses,
+					r.StartedAt.Format(time.RFC3339), truncate(r.Symptom, 40))
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "maximum runs to list")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newTargetsCmd(e *env) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "targets",
+		Short: "List configured diagnosis targets",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			targets := svc.Config().Targets
+			if asJSON {
+				return writeJSON(e.out, targets)
+			}
+			if len(targets) == 0 {
+				fmt.Fprintln(e.out, "no targets configured; add a `targets:` entry to mas.yaml")
+				return nil
+			}
+			w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tKIND\tVERSION\tENVIRONMENT\tSELECTOR")
+			for _, t := range targets {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.Kind, orDash(t.Version), orDash(t.Env), orDash(t.Selector))
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newTopologiesCmd(e *env) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "topologies",
+		Short: "List the available agent topologies",
+		Long: `Topologies are interchangeable: the same request, evidence and tools run through
+a different arrangement of agents. Selecting one per run is what makes them
+comparable on identical cases.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			descs := orchestrator.Descriptions()
+			if asJSON {
+				return writeJSON(e.out, descs)
+			}
+			names := orchestrator.Names()
+			for _, n := range names {
+				fmt.Fprintf(e.out, "%s\n    %s\n\n", n, wrap(descs[n], 92, "    "))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newPacksCmd(e *env) *cobra.Command {
+	var asJSON bool
+	var showID string
+	cmd := &cobra.Command{
+		Use:   "packs",
+		Short: "List loaded knowledge packs, or print one in detail",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			lib := svc.Library()
+			if showID != "" {
+				for _, p := range lib.All() {
+					if p.ID() == showID || p.Metadata.Middleware == showID {
+						if asJSON {
+							return writeJSON(e.out, p)
+						}
+						fmt.Fprintln(e.out, p.Summary(svc.Config().Run.Language))
+						return nil
+					}
+				}
+				return errs.New("MAS-5003", showID)
+			}
+			if asJSON {
+				return writeJSON(e.out, lib.All())
+			}
+			w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "PACK\tMIDDLEWARE\tVERSIONS\tSIGNALS\tPATTERNS\tFAILURE MODES\tPLAYBOOKS\tSOURCE")
+			for _, p := range lib.All() {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n",
+					p.Metadata.Name, p.Metadata.Middleware, orDash(p.Metadata.VersionRange),
+					len(p.Signals), len(p.LogPatterns), len(p.FailureModes), len(p.Playbooks),
+					p.Metadata.Source)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			for _, prob := range lib.Problems() {
+				fmt.Fprintf(e.errOut, "warning: %v\n", prob)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	cmd.Flags().StringVar(&showID, "show", "", "print one pack in detail, by id or middleware")
+	return cmd
+}
+
+func newToolsCmd(e *env) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "tools",
+		Short: "List the read-only capabilities the safety guard permits",
+		Long: `Shows the command and HTTP allow-lists the guard enforces.
+
+Nothing outside these lists can be executed or requested. Extending them is a
+specification change, not a runtime option.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+
+			g := svc.Guard()
+			if asJSON {
+				maxBytes, maxTimeout := g.Limits()
+				return writeJSON(e.out, map[string]any{
+					"commands": g.AllowedCommands(), "paths": g.AllowedPaths(),
+					"max_response_bytes": maxBytes, "max_timeout": maxTimeout.String(),
+				})
+			}
+			fmt.Fprintln(e.out, "Allow-listed commands:")
+			w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			for _, c := range g.AllowedCommands() {
+				verbs := "(any read-only argument)"
+				if len(c.AllowedVerbs) > 0 {
+					verbs = strings.Join(c.AllowedVerbs, ", ")
+				}
+				fmt.Fprintf(w, "  %s\t%s\t%s\n", c.Binary, c.Description, truncate(verbs, 70))
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			fmt.Fprintln(e.out, "\nAllow-listed read paths:")
+			w2 := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			for _, p := range g.AllowedPaths() {
+				fmt.Fprintf(w2, "  %s\t%s\t%s\n", p.Method, p.Description, p.Pattern)
+			}
+			if err := w2.Flush(); err != nil {
+				return err
+			}
+			maxBytes, maxTimeout := g.Limits()
+			fmt.Fprintf(e.out, "\nCeilings: %d bytes per response, %s per call\n", maxBytes, maxTimeout)
+			fmt.Fprintln(e.out, "\nProviders:", strings.Join(llm.Names(), ", "))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+func newErrCodesCmd(e *env) *cobra.Command {
+	var format, lang, filter string
+	cmd := &cobra.Command{
+		Use:   "errcodes",
+		Short: "Print the MAS-NNNN error-code registry",
+		Long: `Every error this tool surfaces carries a stable code with a bilingual message and
+a remediation hint. This command prints the whole registry, and generates the
+reference documentation.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			all := errs.All()
+			if filter != "" {
+				var kept []errs.Definition
+				for _, d := range all {
+					if strings.Contains(strings.ToLower(d.Code+d.Symbol+d.MessageEN), strings.ToLower(filter)) {
+						kept = append(kept, d)
+					}
+				}
+				all = kept
+			}
+			if lang == "" {
+				lang = e.g.language
+			}
+			switch format {
+			case "json":
+				return writeJSON(e.out, all)
+			case "markdown", "md":
+				return writeErrCodeMarkdown(e.out, all, lang)
+			default:
+				w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+				fmt.Fprintln(w, "CODE\tSEVERITY\tDOMAIN\tSYMBOL\tMESSAGE")
+				for _, d := range all {
+					msg := d.MessageEN
+					if lang == "zh" {
+						msg = d.MessageZH
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+						d.Code, d.Severity, errs.Domain(d.Code), d.Symbol, msg)
+				}
+				return w.Flush()
+			}
+		},
+	}
+	cmd.Flags().StringVarP(&format, "format", "f", "table", "output format: table, markdown or json")
+	cmd.Flags().StringVar(&lang, "lang", "", "message language: en or zh")
+	cmd.Flags().StringVar(&filter, "filter", "", "only codes matching this substring")
+	return cmd
+}
+
+var domainTitles = map[string]struct{ en, zh string }{
+	"config":        {"Configuration and request", "配置与请求"},
+	"llm":           {"LLM providers", "LLM 供应商"},
+	"orchestration": {"Agents and orchestration", "Agent 与编排"},
+	"collector":     {"Collectors, adapters and source", "采集器、适配器与源码"},
+	"knowledge":     {"Knowledge packs and rules", "知识包与规则"},
+	"storage":       {"Run storage", "运行存储"},
+	"interface":     {"API and CLI", "API 与 CLI"},
+	"safety":        {"Safety guard", "安全守卫"},
+	"internal":      {"Internal", "内部错误"},
+}
+
+var domainOrder = []string{"config", "llm", "orchestration", "collector",
+	"knowledge", "storage", "interface", "safety", "internal"}
+
+func writeErrCodeMarkdown(w io.Writer, defs []errs.Definition, lang string) error {
+	zh := lang == "zh"
+	byDomain := map[string][]errs.Definition{}
+	for _, d := range defs {
+		dom := errs.Domain(d.Code)
+		byDomain[dom] = append(byDomain[dom], d)
+	}
+	if zh {
+		fmt.Fprintln(w, "# 错误码参考")
+		fmt.Fprintln(w, "\n> 本文件由 `mas errcodes --format markdown --lang zh` 生成，请勿手工编辑。")
+		fmt.Fprintln(w, "> 双语对应文件：[`../en/error-codes.md`](../en/error-codes.md)")
+		fmt.Fprintln(w, "\n每个跨越边界的错误都携带一个稳定的 `MAS-NNNN` 错误码。错误码按域分段（宪章第五条）。")
+	} else {
+		fmt.Fprintln(w, "# Error-code reference")
+		fmt.Fprintln(w, "\n> Generated by `mas errcodes --format markdown --lang en`. Do not edit by hand.")
+		fmt.Fprintln(w, "> Bilingual pair: [`../zh/error-codes.md`](../zh/error-codes.md)")
+		fmt.Fprintln(w, "\nEvery error crossing a boundary carries a stable `MAS-NNNN` code, allocated by domain")
+		fmt.Fprintln(w, "(Constitution Article V).")
+	}
+	for _, dom := range domainOrder {
+		list := byDomain[dom]
+		if len(list) == 0 {
+			continue
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].Code < list[j].Code })
+		title := domainTitles[dom].en
+		if zh {
+			title = domainTitles[dom].zh
+		}
+		fmt.Fprintf(w, "\n## %s\n\n", title)
+		if zh {
+			fmt.Fprintln(w, "| 错误码 | 严重级别 | 符号 | 含义 | 处理建议 |")
+		} else {
+			fmt.Fprintln(w, "| Code | Severity | Symbol | Meaning | What to do |")
+		}
+		fmt.Fprintln(w, "|---|---|---|---|---|")
+		for _, d := range list {
+			msg, remedy := d.MessageEN, d.RemedyEN
+			if zh {
+				msg, remedy = d.MessageZH, d.RemedyZH
+			}
+			fmt.Fprintf(w, "| `%s` | %s | `%s` | %s | %s |\n",
+				d.Code, d.Severity, d.Symbol, escapePipes(msg), escapePipes(remedy))
+		}
+	}
+	return nil
+}
+
+func escapePipes(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
+
+func newConfigCmd(e *env) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Print the effective configuration with every secret redacted",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = svc.Close() }()
+			body, err := svc.Config().Dump()
+			if err != nil {
+				return err
+			}
+			_, err = e.out.Write(body)
+			return err
+		},
+	}
+	return cmd
+}
+
+func writeJSON(w io.Writer, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errs.Wrap(err, "MAS-9002", err.Error())
+	}
+	_, err = w.Write(append(b, '\n'))
+	return err
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+// wrap re-flows text to a width, indenting continuation lines.
+func wrap(s string, width int, indent string) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	lineLen := 0
+	for i, word := range words {
+		if lineLen > 0 && lineLen+1+len(word) > width {
+			b.WriteString("\n" + indent)
+			lineLen = 0
+		} else if i > 0 {
+			b.WriteString(" ")
+			lineLen++
+		}
+		b.WriteString(word)
+		lineLen += len(word)
+	}
+	return b.String()
+}

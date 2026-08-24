@@ -1,0 +1,63 @@
+# Demo configuration: a complete, runnable MAS-Turbo setup that needs no
+# credentials and no live middleware. `make demo` points at this file.
+#
+# The telemetry URLs are filled in by scripts/demo.sh, which starts local stub
+# servers standing in for Prometheus and Loki.
+version: "1"
+
+log:
+  level: warn
+  format: text
+
+llm:
+  # The mock provider replays a scripted Redis investigation, so the demo
+  # produces a complete report without an API key. Switch to anthropic or
+  # openai and set api_key for a real analysis.
+  provider: mock
+  model: mock-1
+
+telemetry:
+  metrics:
+    - name: primary
+      type: prometheus
+      url: http://127.0.0.1:19090
+      timeout: 5s
+      max_samples: 1000
+  logs:
+    - name: primary
+      type: loki
+      url: http://127.0.0.1:13100
+      timeout: 5s
+      max_lines: 200
+
+targets:
+  - id: redis-demo
+    kind: redis
+    version: "7.2.4"
+    labels:
+      instance: redis-0
+
+run:
+  default_topology: supervisor
+  default_mode: offline
+  default_window: 1h
+  # A deterministic finding at or above this confidence skips the agent phase
+  # entirely, which is what makes routine cases cost nothing. The demo passes
+  # --force-agents so you see the full multi-agent pipeline regardless.
+  deterministic_short_circuit: 0.85
+  language: en
+  budget:
+    max_steps: 24
+    max_tool_calls: 40
+    max_tokens: 120000
+    max_wall: 2m
+
+source:
+  enabled: false
+
+store:
+  type: fs
+  dir: ./runs
+
+server:
+  addr: ":8080"
