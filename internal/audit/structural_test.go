@@ -119,9 +119,14 @@ func TestReasoningLayerUsesToolsNotCollectors(t *testing.T) {
 // TestOnlyDesignatedPackagesRunProcesses keeps process execution confined to the
 // two packages whose designs declare it (LLD §2.9, §2.10).
 func TestOnlyDesignatedPackagesRunProcesses(t *testing.T) {
+	// The two adapters below are the only packages a diagnosis can reach that
+	// run a process, and both do so through the guard. internal/sdd and
+	// internal/audit are repository tooling: they never run during a diagnosis
+	// and never touch a target environment.
 	allowed := map[string]bool{
 		"internal/envadapter/local": true,
 		"internal/source":           true,
+		"internal/sdd":              true,
 		"internal/audit":            true,
 	}
 	for pkg, imports := range goPackages(t) {
