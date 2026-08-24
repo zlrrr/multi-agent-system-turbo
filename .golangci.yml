@@ -1,34 +1,57 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
 linters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - misspell
     - bodyclose
     - errorlint
     - gocritic
+    - misspell
     - revive
 
-linters-settings:
-  misspell:
-    locale: UK
-  gocritic:
-    disabled-checks:
-      - ifElseChain
-  revive:
+  settings:
+    misspell:
+      # No locale is set on purpose. Forcing UK spelling rewrites "artifact" —
+      # the SDD term this project is built around — into "artefact", and the
+      # literal HTTP status name "Unauthorized" into a misspelling of itself.
+      # Without a locale, misspell still catches genuine typos.
+      ignore-rules:
+        - artifact
+        - artifacts
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+    errcheck:
+      # Writing a report or a table to the CLI's own output stream. A failed
+      # write to stdout is not recoverable and not worth obscuring every line
+      # of presentation code to acknowledge.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+
+  exclusions:
+    generated: lax
     rules:
-      - name: package-comments
-        disabled: true
+      # Tests deliberately ignore errors from helpers and stub servers where the
+      # failure would surface as an assertion anyway.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+          - gocritic
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters: [errcheck, bodyclose, gocritic]
   max-issues-per-linter: 0
   max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt

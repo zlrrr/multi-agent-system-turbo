@@ -19,24 +19,18 @@ func Tools(c *Client) []tool.Tool {
 	}
 }
 
-// base carries the parts every metrics tool shares, including the effect it
-// declares to the guard.
-type base struct{ c *Client }
-
-func (b base) Domain() tool.Domain  { return tool.DomainMetrics }
-func (b base) Safety() safety.Class { return safety.ClassReadOnly }
-func (b base) plan(path string) safety.Call {
+// planQuery declares the effect a metrics query will have, so the guard can rule
+// on it before the request is made. POST rather than GET because a PromQL
+// expression can outgrow a URL; these endpoints are read-only either way.
+func planQuery(c *Client, path string) safety.Call {
 	return safety.Call{
 		Class:   safety.ClassReadOnly,
-		HTTP:    &safety.HTTPEffect{Method: "POST", URL: b.c.URLFor(path)},
-		Timeout: b.c.Timeout(),
+		HTTP:    &safety.HTTPEffect{Method: "POST", URL: c.URLFor(path)},
+		Timeout: c.Timeout(),
 	}
 }
 
-type instantTool struct {
-	base
-	c *Client
-}
+type instantTool struct{ c *Client }
 
 func (t *instantTool) Name() string { return "promql.instant" }
 func (t *instantTool) Description() string {
@@ -52,7 +46,7 @@ func (t *instantTool) ArgsSchema() tool.Schema {
 	}, "query")
 }
 func (t *instantTool) Plan(map[string]any) (safety.Call, error) {
-	return base{c: t.c}.plan("/api/v1/query"), nil
+	return planQuery(t.c, "/api/v1/query"), nil
 }
 func (t *instantTool) Invoke(ctx context.Context, args map[string]any) (core.Evidence, error) {
 	query := tool.Str(args, "query", "")
@@ -67,10 +61,7 @@ func (t *instantTool) Invoke(ctx context.Context, args map[string]any) (core.Evi
 	return evidenceFrom(t.c, query, res), nil
 }
 
-type rangeTool struct {
-	base
-	c *Client
-}
+type rangeTool struct{ c *Client }
 
 func (t *rangeTool) Name() string { return "promql.range" }
 func (t *rangeTool) Description() string {
@@ -89,7 +80,7 @@ func (t *rangeTool) ArgsSchema() tool.Schema {
 	}, "query")
 }
 func (t *rangeTool) Plan(map[string]any) (safety.Call, error) {
-	return base{c: t.c}.plan("/api/v1/query_range"), nil
+	return planQuery(t.c, "/api/v1/query_range"), nil
 }
 func (t *rangeTool) Invoke(ctx context.Context, args map[string]any) (core.Evidence, error) {
 	query := tool.Str(args, "query", "")
@@ -110,10 +101,7 @@ func (t *rangeTool) Invoke(ctx context.Context, args map[string]any) (core.Evide
 	return evidenceFrom(t.c, query, res), nil
 }
 
-type seriesTool struct {
-	base
-	c *Client
-}
+type seriesTool struct{ c *Client }
 
 func (t *seriesTool) Name() string { return "promql.series" }
 func (t *seriesTool) Description() string {
@@ -131,7 +119,7 @@ func (t *seriesTool) ArgsSchema() tool.Schema {
 	}, "match")
 }
 func (t *seriesTool) Plan(map[string]any) (safety.Call, error) {
-	return base{c: t.c}.plan("/api/v1/series"), nil
+	return planQuery(t.c, "/api/v1/series"), nil
 }
 func (t *seriesTool) Invoke(ctx context.Context, args map[string]any) (core.Evidence, error) {
 	matchers := tool.Strings(args, "match")

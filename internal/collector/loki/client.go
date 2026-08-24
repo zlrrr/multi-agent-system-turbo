@@ -226,10 +226,10 @@ func (c *Client) get(ctx context.Context, path string, form url.Values) ([]byte,
 	if err != nil {
 		return nil, errs.Wrap(err, "MAS-4103", c.name, err.Error())
 	}
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	switch resp.StatusCode {
+	case http.StatusOK:
 		return body, nil
-	case resp.StatusCode == http.StatusBadRequest:
+	case http.StatusBadRequest:
 		return nil, errs.New("MAS-4104", strings.TrimSpace(string(body)))
 	default:
 		return nil, errs.New("MAS-4102", c.name, resp.StatusCode)

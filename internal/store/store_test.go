@@ -212,8 +212,7 @@ func TestCorruptDetected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := []byte(string(body[:len(body)-1]) + `,"injected":true}`)
-	tampered = []byte(replaceFirst(string(body), `"symptom":"latency"`, `"symptom":"tampered"`))
+	tampered := []byte(replaceFirst(string(body), `"symptom":"latency"`, `"symptom":"tampered"`))
 	if err := os.WriteFile(path, tampered, 0o600); err != nil {
 		t.Fatal(err)
 	}

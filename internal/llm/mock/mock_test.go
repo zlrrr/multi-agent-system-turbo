@@ -36,8 +36,9 @@ func TestMockDeterminism(t *testing.T) {
 		}
 		return b.String()
 	}
-	if run() != run() {
-		t.Fatal("the mock provider is not deterministic")
+	first, second := run(), run()
+	if first != second {
+		t.Fatalf("the mock provider is not deterministic:\n%s\n---\n%s", first, second)
 	}
 }
 

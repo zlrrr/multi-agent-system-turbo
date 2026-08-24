@@ -208,8 +208,10 @@ func TestSecretNeverSerialises(t *testing.T) {
 	}
 	for name, blob := range map[string]string{
 		"json": string(jb), "yaml": string(yb), "dump": string(dump),
-		"fmt %v":     fmt.Sprintf("%v", c.LLM.APIKey),
-		"fmt %s":     fmt.Sprintf("%s", c.LLM.APIKey),
+		"fmt %v": fmt.Sprintf("%v", c.LLM.APIKey),
+		// Deliberately exercising the %s path rather than calling String():
+		// the point is that formatting a Secret cannot leak it.
+		"fmt %s":     fmt.Sprintf("%s", c.LLM.APIKey), //nolint:staticcheck // S1025: the fmt path is what is under test
 		"fmt %#v":    fmt.Sprintf("%#v", c.LLM.APIKey),
 		"struct %+v": fmt.Sprintf("%+v", c.LLM),
 	} {

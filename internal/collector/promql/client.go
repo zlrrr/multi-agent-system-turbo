@@ -274,10 +274,10 @@ func (c *Client) post(ctx context.Context, path string, form url.Values) ([]byte
 	if err != nil {
 		return nil, errs.Wrap(err, "MAS-4003", c.name, err.Error())
 	}
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	switch resp.StatusCode {
+	case http.StatusOK:
 		return body, nil
-	case resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity:
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		// Prometheus reports a rejected query with a JSON error body.
 		var e struct {
 			Error string `json:"error"`

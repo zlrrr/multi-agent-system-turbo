@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/agent"
@@ -276,18 +277,24 @@ func (s *Service) Diagnose(ctx context.Context, req core.DiagnoseRequest) (*core
 }
 
 // stepSink adapts the run store to the tool layer's step recorder.
+//
+// Concurrent investigators append through it simultaneously, so the counter is
+// atomic; the stores behind it serialise their own writes.
 type stepSink struct {
 	store store.RunStore
 	runID string
-	calls int
+	calls atomic.Int64
 }
 
 func (s *stepSink) AppendStep(ctx context.Context, step core.Step) {
-	s.calls++
+	s.calls.Add(1)
 	if err := s.store.Append(ctx, s.runID, step); err != nil {
 		obs.Log(ctx).Warn("step not recorded", "code", errs.CodeOf(err), "error", err.Error())
 	}
 }
+
+// Calls reports how many steps were recorded.
+func (s *stepSink) Calls() int { return int(s.calls.Load()) }
 
 func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.DiagnoseRequest,
 	target core.Target, targetCfg config.TargetConfig) (*core.Report, error) {
@@ -367,7 +374,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 		log.Info("deterministic short circuit",
 			"top_confidence", deterministic.TopConfidence(), "threshold", threshold, "llm_calls", 0)
 		s.finishDeterministic(report, pack, deterministic, req.Language)
-		report.Usage.ToolCalls = sink.calls
+		report.Usage.ToolCalls = sink.Calls()
 		report.SortFindings()
 		report.SortHypotheses()
 		return report, report.Validate()
@@ -384,7 +391,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 			Impact: "only the deterministic checks contributed to this report",
 		})
 		s.finishDeterministic(report, pack, deterministic, req.Language)
-		report.Usage.ToolCalls = sink.calls
+		report.Usage.ToolCalls = sink.Calls()
 		report.SortFindings()
 		report.SortHypotheses()
 		return report, report.Validate()
@@ -431,7 +438,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 	report.Gaps = st.Gaps()
 	report.Notes = st.Notes()
 	report.Usage = st.Usage()
-	report.Usage.ToolCalls = sink.calls
+	report.Usage.ToolCalls = sink.Calls()
 	truncated, reason := st.Truncated()
 	report.Truncated = truncated || deterministic.Truncated
 	if reason != "" {

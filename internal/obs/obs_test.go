@@ -172,8 +172,9 @@ func TestPromExpositionIsDeterministic(t *testing.T) {
 		_ = m.WriteProm(&b)
 		return b.String()
 	}
-	if build() != build() {
-		t.Fatal("exposition order is not stable across runs")
+	first, second := build(), build()
+	if first != second {
+		t.Fatalf("exposition order is not stable across runs:\n%s\n---\n%s", first, second)
 	}
 }
 

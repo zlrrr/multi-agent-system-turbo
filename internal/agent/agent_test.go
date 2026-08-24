@@ -19,10 +19,9 @@ import (
 
 // echoTool is a trivial capability so agents have something real to call.
 type echoTool struct {
-	name    string
-	domain  tool.Domain
-	calls   int
-	failing bool
+	name   string
+	domain tool.Domain
+	calls  int
 }
 
 func (e *echoTool) Name() string         { return e.name }

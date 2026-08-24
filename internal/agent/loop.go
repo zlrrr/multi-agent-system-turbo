@@ -20,13 +20,12 @@ const maxRepairAttempts = 2
 
 // loopOptions parameterises a reasoning loop.
 type loopOptions struct {
-	role       Role
-	label      string // role as it appears in prompts, e.g. "investigator (metrics)"
-	system     string
-	user       string
-	toolNames  []string
-	maxTurns   int
-	jsonResult bool
+	role      Role
+	label     string // role as it appears in prompts, e.g. "investigator (metrics)"
+	system    string
+	user      string
+	toolNames []string
+	maxTurns  int
 }
 
 // runLoop is the shared reasoning loop: complete, invoke any requested tools,

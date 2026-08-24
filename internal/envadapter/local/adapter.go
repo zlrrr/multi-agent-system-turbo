@@ -188,7 +188,7 @@ func (a *Adapter) Tools() []tool.Tool {
 	}
 }
 
-type hostTool struct{ a *Adapter }
+type hostTool struct{}
 
 func (hostTool) Domain() tool.Domain     { return tool.DomainHost }
 func (hostTool) Safety() safety.Class    { return safety.ClassReadOnly }
