@@ -6,14 +6,16 @@ feature: 001-mvp-core
 artifacts:
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.0.0
+    version: 1.1.0
     upstream: null
     derived_from_version: null
   - id: spec
+    # Re-reviewed against goals 1.1.0: the amendment records what was delivered
+    # and moves K8s exec into M2, both of which spec.md §3 already states.
     path: spec.md
     version: 1.0.0
     upstream: goals
-    derived_from_version: 1.0.0
+    derived_from_version: 1.1.0
   - id: plan
     path: plan.md
     version: 1.0.0

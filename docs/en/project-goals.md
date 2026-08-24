@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.0.0 · **Status**: approved · **Date**: 2026-08-23
+> **Version**: 1.1.0 · **Status**: approved · **Date**: 2026-08-24
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -209,12 +209,12 @@ disconnected parts.
 
 ## 6. Milestone exit criteria
 
-| Milestone | Exit criterion |
-|---|---|
-| **M1** | `make ci` green; container image runs `mas diagnose` end-to-end against a mock provider and a fixture telemetry stack; report produced; manual published; release workflow produces artifacts |
-| M2 | All six knowledge packs pass their pack-conformance tests; source fallback proven under simulated network failure; ≥4 topologies selectable |
-| M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command |
-| M4 | API authenticated; run store pluggable; UI serving reports |
+| Milestone | Exit criterion | Status |
+|---|---|---|
+| **M1** | `make ci` green; container image runs `mas diagnose` end-to-end against a mock provider and a fixture telemetry stack; report produced; manual published; release workflow produces artifacts | **Met.** `make ci` green (format, vet, lint, race tests, SDD checks, build); `make demo` produces English and Chinese reports from stub telemetry with no credentials; a container running as uid 65532 completes a diagnosis and returns the documented exit codes; bilingual manual, configuration and error-code references published |
+| M2 | All six knowledge packs pass their pack-conformance tests; Kubernetes in-container `exec`; ≥4 topologies selectable | Source fallback already proven under simulated network failure (delivered in M1) |
+| M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command | Not started |
+| M4 | API authenticated; run store pluggable; UI serving reports | Run store is already pluggable behind `RunStore` (delivered in M1) |
 
 ## 7. Measures of success
 
@@ -231,6 +231,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.1.0 | 2026-08-24 | M1 recorded as delivered; two items promoted into M1 during implementation (the local host adapter from P1-1, and source acquisition with local fallback from P1-2) because both proved self-contained and both are headline capabilities of the stated goal; Kubernetes in-container `exec` moved from M1 into M2 in their place | Delivered scope reconciled with planned scope, so the backlog reflects reality rather than intent | `specs/001-mvp-core/spec.md` §3 (already amended before implementation) |
 | 1.0.0 | 2026-08-23 | Initial decomposition of the stated project goal into G1–G13, non-goals NG-1–NG-6, and the M1–M4 prioritised backlog | Baseline | `specs/001-mvp-core/*` |
 
 ## 9. Assumptions
