@@ -48,15 +48,15 @@ A task is `done` only when its test passes (Art. VI.2).
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| T030 | `internal/llm`: types, `Provider`, registry, budget accounting | FR-010, FR-019 | `TestRegistryOpen`, `TestUnknownProviderCoded` | T004 | todo |
-| T031 | `llm/mock` scripted deterministic provider | Art. VI.3, NFR-010 | `TestMockDeterminism`, `TestMockToolSequence` | T030 | todo |
-| T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`, `TestAnthropicErrorMapping`, `TestAPIKeyRedactedInErrors` | T030 | todo |
-| T033 | `llm/openai` (OpenAI-compatible) [P] | FR-010 | `TestOpenAIToolRoundTrip`, `TestBaseURLOverride`, `TestOpenAIErrorMapping` | T030 | todo |
-| T034 | `internal/agent`: `State`, budgets, `toolLoop`, prompt templates | FR-009, FR-019 | `TestBudgetEnforced`, `TestInvalidToolCallRepairThenGap` | T031, T010 | todo |
-| T035 | Roles: planner, investigator, correlator, critic, reporter | G7.1 | one behavioural test per role against a scripted mock | T034 | todo |
-| T036 | `internal/orchestrator`: interface, registry, `single` | FR-009 | `TestSingleProducesReport`, `TestRegistryRejectsDuplicate` | T035 | todo |
-| T037 | `orchestrator/supervisor` with concurrent investigators | FR-009 | `TestSupervisorProducesReport`, `-race` clean | T036 | todo |
-| **G-D** | **Gate D** | | `go test -race ./internal/llm/... ./internal/agent/... ./internal/orchestrator/...` green | | todo |
+| T030 | `internal/llm`: types, `Provider`, registry, budget accounting | FR-010, FR-019 | `TestRegistryOpen`, `TestUnknownProviderCoded` | T004 | done |
+| T031 | `llm/mock` scripted deterministic provider | Art. VI.3, NFR-010 | `TestMockDeterminism`, `TestMockToolSequence` | T030 | done |
+| T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`, `TestAnthropicErrorMapping`, `TestAPIKeyRedactedInErrors` | T030 | done |
+| T033 | `llm/openai` (OpenAI-compatible) [P] | FR-010 | `TestOpenAIToolRoundTrip`, `TestBaseURLOverride`, `TestOpenAIErrorMapping` | T030 | done |
+| T034 | `internal/agent`: `State`, budgets, `toolLoop`, prompt templates | FR-009, FR-019 | `TestBudgetEnforced`, `TestInvalidToolCallRepairThenGap` | T031, T010 | done |
+| T035 | Roles: planner, investigator, correlator, critic, reporter | G7.1 | one behavioural test per role against a scripted mock | T034 | done |
+| T036 | `internal/orchestrator`: interface, registry, `single` | FR-009 | `TestSingleProducesReport`, `TestRegistryRejectsDuplicate` | T035 | done |
+| T037 | `orchestrator/supervisor` with concurrent investigators | FR-009 | `TestSupervisorProducesReport`, `-race` clean | T036 | done |
+| **G-D** | **Gate D** | | `go test -race ./internal/llm/... ./internal/agent/... ./internal/orchestrator/...` green | | done |
 
 ## Phase E — Output & persistence
 

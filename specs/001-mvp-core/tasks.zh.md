@@ -48,15 +48,15 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| T030 | `internal/llm`：类型、`Provider`、注册表、预算统计 | FR-010、FR-019 | `TestRegistryOpen`、`TestUnknownProviderCoded` | T004 | todo |
-| T031 | `llm/mock` 脚本化确定性 provider | 第六条 VI.3、NFR-010 | `TestMockDeterminism`、`TestMockToolSequence` | T030 | todo |
-| T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`、`TestAnthropicErrorMapping`、`TestAPIKeyRedactedInErrors` | T030 | todo |
-| T033 | `llm/openai`（OpenAI 兼容） [P] | FR-010 | `TestOpenAIToolRoundTrip`、`TestBaseURLOverride`、`TestOpenAIErrorMapping` | T030 | todo |
-| T034 | `internal/agent`：`State`、预算、`toolLoop`、提示词模板 | FR-009、FR-019 | `TestBudgetEnforced`、`TestInvalidToolCallRepairThenGap` | T031、T010 | todo |
-| T035 | 角色：规划、调查、关联、批判、报告 | G7.1 | 每个角色一个针对脚本化 mock 的行为测试 | T034 | todo |
-| T036 | `internal/orchestrator`：接口、注册表、`single` | FR-009 | `TestSingleProducesReport`、`TestRegistryRejectsDuplicate` | T035 | todo |
-| T037 | `orchestrator/supervisor`，含并发调查者 | FR-009 | `TestSupervisorProducesReport`、`-race` 干净 | T036 | todo |
-| **G-D** | **闸门 D** | | `go test -race ./internal/llm/... ./internal/agent/... ./internal/orchestrator/...` 全绿 | | todo |
+| T030 | `internal/llm`：类型、`Provider`、注册表、预算统计 | FR-010、FR-019 | `TestRegistryOpen`、`TestUnknownProviderCoded` | T004 | done |
+| T031 | `llm/mock` 脚本化确定性 provider | 第六条 VI.3、NFR-010 | `TestMockDeterminism`、`TestMockToolSequence` | T030 | done |
+| T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`、`TestAnthropicErrorMapping`、`TestAPIKeyRedactedInErrors` | T030 | done |
+| T033 | `llm/openai`（OpenAI 兼容） [P] | FR-010 | `TestOpenAIToolRoundTrip`、`TestBaseURLOverride`、`TestOpenAIErrorMapping` | T030 | done |
+| T034 | `internal/agent`：`State`、预算、`toolLoop`、提示词模板 | FR-009、FR-019 | `TestBudgetEnforced`、`TestInvalidToolCallRepairThenGap` | T031、T010 | done |
+| T035 | 角色：规划、调查、关联、批判、报告 | G7.1 | 每个角色一个针对脚本化 mock 的行为测试 | T034 | done |
+| T036 | `internal/orchestrator`：接口、注册表、`single` | FR-009 | `TestSingleProducesReport`、`TestRegistryRejectsDuplicate` | T035 | done |
+| T037 | `orchestrator/supervisor`，含并发调查者 | FR-009 | `TestSupervisorProducesReport`、`-race` 干净 | T036 | done |
+| **G-D** | **闸门 D** | | `go test -race ./internal/llm/... ./internal/agent/... ./internal/orchestrator/...` 全绿 | | done |
 
 ## 阶段 E —— 输出与持久化
 
