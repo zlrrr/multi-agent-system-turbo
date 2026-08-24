@@ -307,3 +307,13 @@ func parseQuery(source, query string, body []byte, limit int) (Result, error) {
 	sort.SliceStable(out.Lines, func(i, j int) bool { return out.Lines[i].At.After(out.Lines[j].At) })
 	return out, nil
 }
+
+// LogLines implements core.LinesPayload, giving reasoning code a
+// collector-independent view of this result.
+func (r Result) LogLines() []string {
+	out := make([]string, 0, len(r.Lines))
+	for _, l := range r.Lines {
+		out = append(out, l.Text)
+	}
+	return out
+}

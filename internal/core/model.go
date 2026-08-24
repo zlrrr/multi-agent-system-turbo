@@ -440,3 +440,34 @@ func (r *RunRecord) Summarise() RunSummary {
 	}
 	return s
 }
+
+// SeriesStats is the collector-independent numeric summary of a metric result.
+//
+// Latest is the maximum of each series' most recent value, because threshold
+// checks nearly always mean "is any instance over the line"; LatestMin gives the
+// other end for "have all instances recovered" checks.
+type SeriesStats struct {
+	Empty     bool               `json:"empty"`
+	Series    int                `json:"series"`
+	Count     int                `json:"count"`
+	Latest    float64            `json:"latest"`
+	LatestMin float64            `json:"latest_min"`
+	Min       float64            `json:"min"`
+	Max       float64            `json:"max"`
+	Avg       float64            `json:"avg"`
+	Sum       float64            `json:"sum"`
+	Delta     float64            `json:"delta"`
+	ByLabel   map[string]float64 `json:"by_label"`
+}
+
+// SeriesPayload is implemented by evidence payloads carrying numeric series.
+// Reasoning code depends on this interface rather than on any collector, which
+// is what keeps the layering rule in design-hld.md §3 enforceable.
+type SeriesPayload interface {
+	Stats() SeriesStats
+}
+
+// LinesPayload is implemented by evidence payloads carrying log lines.
+type LinesPayload interface {
+	LogLines() []string
+}

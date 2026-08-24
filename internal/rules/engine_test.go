@@ -461,7 +461,7 @@ func TestMetricViewAggregates(t *testing.T) {
 		{Metric: map[string]string{"instance": "b"}, Last: 2, Min: 2, Max: 2, Avg: 2, Count: 1,
 			Points: []promql.Sample{{Value: 2}}},
 	}}
-	v := metricView(res, "summary")
+	v := metricView(res.Stats(), "summary")
 	if v.Latest != 5 {
 		t.Errorf("Latest = %v; it must be the maximum across series so 'any instance over the line' works", v.Latest)
 	}
@@ -483,7 +483,7 @@ func TestMetricViewAggregates(t *testing.T) {
 }
 
 func TestMetricViewEmpty(t *testing.T) {
-	v := metricView(promql.Result{}, "none")
+	v := metricView(promql.Result{}.Stats(), "none")
 	if !v.Empty || v.Latest != 0 || v.Min != 0 || v.Max != 0 {
 		t.Fatalf("an empty result must present as zeroed, not infinite: %+v", v)
 	}

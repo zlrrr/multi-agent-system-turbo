@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/loki"
-	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/promql"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 )
 
@@ -54,22 +52,19 @@ type ObjectView struct {
 }
 
 // bindEvidence converts one piece of evidence into its expression view.
+//
+// It dispatches on the payload's own capability interfaces rather than on
+// concrete collector types, so the reasoning layer never imports a collector
+// (design-hld.md §3, enforced by internal/audit).
 func bindEvidence(ev core.Evidence) any {
 	switch payload := ev.Payload.(type) {
-	case promql.Result:
-		return metricView(payload, ev.Summary)
-	case *promql.Result:
-		return metricView(*payload, ev.Summary)
-	case loki.Result:
-		return logView(payload, ev.Summary)
-	case *loki.Result:
-		return logView(*payload, ev.Summary)
+	case core.SeriesPayload:
+		return metricView(payload.Stats(), ev.Summary)
+	case core.LinesPayload:
+		return logView(payload.LogLines(), ev.Summary)
 	case map[string]any:
-		if lines, ok := payload["lines"].([]string); ok {
-			return LogView{
-				Empty: len(lines) == 0, Count: len(lines), Lines: lines,
-				Text: strings.Join(lines, "\n"), Summary: ev.Summary,
-			}
+		if lines, ok := stringSlice(payload["lines"]); ok {
+			return logView(lines, ev.Summary)
 		}
 		return ObjectView{Empty: len(payload) == 0, Data: payload, Summary: ev.Summary}
 	default:
@@ -77,73 +72,35 @@ func bindEvidence(ev core.Evidence) any {
 	}
 }
 
-func metricView(r promql.Result, summary string) MetricView {
-	v := MetricView{
-		Empty: r.Empty(), Series: len(r.Series), Summary: summary,
-		ByLabel:   map[string]float64{},
-		Min:       math.Inf(1),
-		Max:       math.Inf(-1),
-		Latest:    math.Inf(-1),
-		LatestMin: math.Inf(1),
-	}
-	if r.Empty() {
-		v.Min, v.Max, v.Latest, v.LatestMin = 0, 0, 0, 0
-		return v
-	}
-	var sum float64
-	var first, last float64
-	haveFirst := false
-	for _, s := range r.Series {
-		if s.Last > v.Latest {
-			v.Latest = s.Last
-		}
-		if s.Last < v.LatestMin {
-			v.LatestMin = s.Last
-		}
-		if s.Min < v.Min {
-			v.Min = s.Min
-		}
-		if s.Max > v.Max {
-			v.Max = s.Max
-		}
-		v.Count += s.Count
-		sum += s.Avg * float64(s.Count)
-		v.Sum += s.Last
-		v.ByLabel[labelKey(s.Metric)] = s.Last
-		if len(s.Points) > 0 {
-			if !haveFirst {
-				first, haveFirst = s.Points[0].Value, true
+func stringSlice(v any) ([]string, bool) {
+	switch t := v.(type) {
+	case []string:
+		return t, true
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
 			}
-			last = s.Points[len(s.Points)-1].Value
+			out = append(out, s)
 		}
+		return out, true
+	default:
+		return nil, false
 	}
-	if v.Count > 0 {
-		v.Avg = sum / float64(v.Count)
-	}
-	v.Last = v.Latest
-	if haveFirst {
-		v.Delta = last - first
-	}
-	return v
 }
 
-func labelKey(m map[string]string) string {
-	for _, k := range []string{"instance", "pod", "topic", "node", "job"} {
-		if val, ok := m[k]; ok {
-			return val
-		}
+func metricView(s core.SeriesStats, summary string) MetricView {
+	return MetricView{
+		Empty: s.Empty, Series: s.Series, Count: s.Count,
+		Latest: s.Latest, Last: s.Latest, LatestMin: s.LatestMin,
+		Min: s.Min, Max: s.Max, Avg: s.Avg, Sum: s.Sum, Delta: s.Delta,
+		ByLabel: s.ByLabel, Summary: summary,
 	}
-	if name, ok := m["__name__"]; ok {
-		return name
-	}
-	return "series"
 }
 
-func logView(r loki.Result, summary string) LogView {
-	lines := make([]string, 0, len(r.Lines))
-	for _, l := range r.Lines {
-		lines = append(lines, l.Text)
-	}
+func logView(lines []string, summary string) LogView {
 	return LogView{
 		Empty: len(lines) == 0, Count: len(lines), Lines: lines,
 		Text: strings.Join(lines, "\n"), Summary: summary,

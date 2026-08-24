@@ -472,3 +472,50 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// Stats implements core.SeriesPayload, giving reasoning code a
+// collector-independent view of this result.
+func (r Result) Stats() core.SeriesStats {
+	s := core.SeriesStats{
+		Empty: r.Empty(), Series: len(r.Series), ByLabel: map[string]float64{},
+		Min: math.Inf(1), Max: math.Inf(-1), Latest: math.Inf(-1), LatestMin: math.Inf(1),
+	}
+	if r.Empty() {
+		s.Min, s.Max, s.Latest, s.LatestMin = 0, 0, 0, 0
+		return s
+	}
+	var weighted float64
+	var first, last float64
+	haveFirst := false
+	for _, series := range r.Series {
+		if series.Last > s.Latest {
+			s.Latest = series.Last
+		}
+		if series.Last < s.LatestMin {
+			s.LatestMin = series.Last
+		}
+		if series.Min < s.Min {
+			s.Min = series.Min
+		}
+		if series.Max > s.Max {
+			s.Max = series.Max
+		}
+		s.Count += series.Count
+		s.Sum += series.Last
+		weighted += series.Avg * float64(series.Count)
+		s.ByLabel[labelDigest(series.Metric)] = series.Last
+		if len(series.Points) > 0 {
+			if !haveFirst {
+				first, haveFirst = series.Points[0].Value, true
+			}
+			last = series.Points[len(series.Points)-1].Value
+		}
+	}
+	if s.Count > 0 {
+		s.Avg = weighted / float64(s.Count)
+	}
+	if haveFirst {
+		s.Delta = last - first
+	}
+	return s
+}
