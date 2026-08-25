@@ -14,10 +14,20 @@ usage = report.get("usage", {})
 hypotheses = report.get("hypotheses") or [{}]
 statement = hypotheses[0].get("statement") or "(none)"
 
-print("%-14s %6d %6d %8d  %s" % (
+# Cost is printed only when it was measured. The demo prices nothing, so this
+# reads "unpriced" — which is the honest answer, and the point: a zero here
+# would be read as "this run was free".
+cost = usage.get("cost") or {}
+if cost.get("known"):
+    money = "$%.4f" % cost.get("usd", 0.0)
+else:
+    money = "unpriced"
+
+print("%-14s %6d %6d %8d %10s  %s" % (
     report.get("topology", "?"),
     usage.get("llm_calls", 0),
     usage.get("tool_calls", 0),
     usage.get("wall_millis", 0),
-    statement[:64],
+    money,
+    statement[:52],
 ))

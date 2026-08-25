@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/loki"
@@ -166,6 +167,33 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 			add("source acquisition", CheckOK, fmt.Sprintf(
 				"git available; %d repo(s), %d mirror(s), cache %s",
 				len(s.cfg.Source.Repos), len(s.cfg.Source.Mirrors), s.cfg.Source.CacheDir), nil, t0)
+		}
+	}
+
+	// Pricing is reported separately from the provider: an unpriced model is not
+	// a failure, it is a stated unknown, and an operator who sees "cost: $0.00"
+	// nowhere in their report deserves to know why.
+	t0 = time.Now()
+	if router, rerr := llm.NewRouter(s.cfg.LLM); rerr == nil {
+		pricing := llm.Pricing(s.cfg.LLM.Pricing)
+		var unpriced []string
+		for _, m := range router.Models() {
+			if !pricing.Priced(m) {
+				unpriced = append(unpriced, m)
+			}
+		}
+		_ = router.Close()
+		switch {
+		case len(router.Models()) == 0:
+			add("model pricing", CheckSkip, "no model is configured", nil, t0)
+		case len(unpriced) == 0:
+			add("model pricing", CheckOK,
+				fmt.Sprintf("every model this run would use is priced (%s)",
+					strings.Join(router.Models(), ", ")), nil, t0)
+		default:
+			add("model pricing", CheckSkip, fmt.Sprintf(
+				"not priced: %s — reports will state the cost as unknown rather than as zero; "+
+					"set llm.pricing to get a figure", strings.Join(unpriced, ", ")), nil, t0)
 		}
 	}
 

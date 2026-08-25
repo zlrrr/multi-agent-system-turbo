@@ -60,19 +60,59 @@ API 响应或缺陷报告泄漏。无法解析的引用返回 `MAS-1006`。
 | `max_tokens` | `4096` | 单次补全上限 |
 | `temperature` | `0` | 采样温度 |
 | `mock_script` | — | 脚本化对话文件路径（仅 mock provider） |
-| `per_agent` | — | 按角色覆盖 `model` 与 `temperature` |
+| `per_agent` | — | 按角色覆盖 `provider`、`model` 与 `temperature` |
+| `providers` | — | 可供角色路由到的具名备选 provider |
+| `pricing` | — | 按模型的价格，用于计算一次运行的成本 |
+
+### 把角色路由到不同的模型
 
 `per_agent` 的存在是因为不同角色需求不同。调查者主要做抽取与归纳；真正需要判断力的是关联与
-批判：
+批判。角色可以覆盖模型、温度，也可以整体覆盖 **provider**：
 
 ```yaml
 llm:
   provider: anthropic
   model: claude-opus-5              # 关联者、批判者、报告者
+  api_key: ${env:ANTHROPIC_API_KEY}
+
+  providers:                        # 具名备选
+    local:
+      provider: openai
+      base_url: http://127.0.0.1:11434/v1
+      model: qwen2.5:14b
+
   per_agent:
-    investigator:
-      model: claude-haiku-4-5-20251001
+    investigator: { provider: local }     # 廉价抽取
+    executor:     { provider: local }
+    correlator:   { temperature: 0.1 }    # 默认 provider，温度更低
 ```
+
+具名 provider 会继承默认配置中它没有设置的每一个字段，角色也会继承它没有覆盖的一切。
+这一点比看上去更要紧：只改了温度的角色不应因此丢掉端点与密钥 ——
+按角色把配置重述一遍，正是生产运行栽在"某人漏掉的那一个字段"上的方式。
+
+一次运行所路由到的每个 provider 都在准入时打开，因此错误的凭据会让这次运行被拒，
+而不是变成三分钟后才发现的一条缺口。执行 `mas models` 可查看实际会生效的路由。
+
+### 定价
+
+**本项目不内置任何价目表。** 价格会变、随合同与区域而异，
+而一个看起来权威的过期数字就是一句假话。所以价格由你来提供：
+
+```yaml
+llm:
+  pricing:
+    claude-opus-5:  { input_per_mtok: 5.00, output_per_mtok: 25.00 }
+    qwen2.5:14b:    { input_per_mtok: 0,    output_per_mtok: 0 }   # 自建
+```
+
+**没有条目**的模型会让本次运行的成本变为*未知*。它绝不会被报告为 0 ——
+一份声称本次运行没花钱的报告，比一份什么都不说的报告更糟，因为你会相信它。
+而显式配置为 `0` 的价格是另一回事，仍属已知：自建模型在边际上确实免费，
+写下 `0` 就是在有意这么说。
+
+对部分模型定了价、部分没有的运行，会同时报告已定价的那部分**并**点名无法定价的模型，
+因此那个数字不会被误当成总额。`mas doctor` 与 `mas models` 都会报告哪些模型已定价。
 
 `mock` provider 重放脚本化对话。正是它让测试套件具备确定性、让演示无需凭据；`mas doctor`
 在检测到它时会给出警告，因为那不是一次真实分析。

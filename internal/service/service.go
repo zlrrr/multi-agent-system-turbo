@@ -380,7 +380,10 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 		return report, report.Validate()
 	}
 
-	provider, err := llm.Open(s.cfg.LLM)
+	// The router opens every provider the run routes to, so a bad credential on
+	// a per-role provider is refused here rather than discovered mid-run, after
+	// the roles that did work have already spent their tokens.
+	router, err := llm.NewRouter(s.cfg.LLM)
 	if err != nil {
 		// A model outage must not lose the deterministic work already done.
 		log.Warn("model provider unavailable; reporting deterministic findings only",
@@ -396,7 +399,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 		report.SortHypotheses()
 		return report, report.Validate()
 	}
-	defer func() { _ = provider.Close() }()
+	defer func() { _ = router.Close() }()
 
 	st := agent.NewState()
 	st.Run = rec
@@ -407,7 +410,8 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 	st.Passed = deterministic.ChecksPassed
 	st.Tools = invoker
 	st.Sink = sink
-	st.Provider = provider
+	st.Provider = router.Default().Provider
+	st.Router = router
 	st.LLMConfig = s.cfg.LLM
 	st.Language = req.Language
 	st.MaxConcurrency = s.cfg.Run.MaxConcurrency
@@ -439,6 +443,14 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 	report.Notes = st.Notes()
 	report.Usage = st.Usage()
 	report.Usage.ToolCalls = sink.Calls()
+
+	// Cost and the per-role breakdown come from the ledger the router wrote to,
+	// not from the state's running totals: the ledger is what saw the model
+	// names, and cost can only be priced against those.
+	report.Usage.Cost = router.Ledger().Cost()
+	report.RoleUsage = router.Ledger().ByRole()
+	report.Routing = effectiveRouting(router)
+
 	truncated, reason := st.Truncated()
 	report.Truncated = truncated || deterministic.Truncated
 	if reason != "" {
@@ -488,6 +500,17 @@ func deterministicRationale(f core.Finding, lang string) string {
 
 // appendPackRecommendations adds the vetted advice for each concluded failure
 // mode, skipping any the agents already said in substance.
+// effectiveRouting renders which provider and model each role used, so a
+// comparison between two runs can be repeated exactly rather than approximately
+// (FR-012).
+func effectiveRouting(router *llm.Router) map[string]string {
+	out := map[string]string{}
+	for role, rt := range router.Routes() {
+		out[role] = rt.Name + "/" + rt.Model
+	}
+	return out
+}
+
 func (s *Service) appendPackRecommendations(report *core.Report, pack *knowledge.Pack,
 	conclusions []string, lang string) {
 

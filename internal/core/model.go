@@ -257,12 +257,94 @@ func NewRecommendation(statement string, risk Risk, rationale string, refs ...st
 
 // Usage accounts for what a run consumed (FR-019).
 type Usage struct {
-	LLMCalls         int     `json:"llm_calls"`
-	PromptTokens     int     `json:"prompt_tokens"`
-	CompletionTokens int     `json:"completion_tokens"`
-	ToolCalls        int     `json:"tool_calls"`
-	CostUSD          float64 `json:"cost_usd,omitempty"`
-	WallMillis       int64   `json:"wall_millis"`
+	LLMCalls         int   `json:"llm_calls"`
+	PromptTokens     int   `json:"prompt_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	ToolCalls        int   `json:"tool_calls"`
+	Cost             Cost  `json:"cost"`
+	WallMillis       int64 `json:"wall_millis"`
+}
+
+// RoleUsage is what one diagnostic role spent.
+//
+// It exists so a topology comparison can be specific. Feature 003 made
+// topologies comparable and the demo prints what each cost in calls; with a
+// per-role breakdown the answer becomes actionable — "debate costs more, and
+// all of the difference is in the advocates" tells an operator what to change.
+type RoleUsage struct {
+	Role             string `json:"role"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Calls            int    `json:"calls"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	WallMillis       int64  `json:"wall_millis"`
+	Cost             Cost   `json:"cost"`
+}
+
+// Cost is what a run spent, or an honest statement that nobody knows.
+//
+// It is a type rather than a float because a float has no value meaning "not
+// measured". Zero is a real cost — a self-hosted model genuinely costs nothing
+// at the margin — so a renderer cannot tell "free" from "unpriced" without a
+// convention, and a convention is what a maintainer edits away without noticing.
+// A report that says a run cost $0.00 when nothing was ever priced is worse than
+// one that says nothing, because an operator will believe it.
+type Cost struct {
+	USD   float64 `json:"usd"`
+	Known bool    `json:"known"`
+	// Unpriced names the models that had no configured price, so a partly
+	// priced run can report what it does know without overstating it.
+	Unpriced []string `json:"unpriced,omitempty"`
+}
+
+// KnownCost is a measured amount.
+func KnownCost(usd float64) Cost { return Cost{USD: usd, Known: true} }
+
+// UnpricedCost is an amount nobody can compute, naming the model responsible.
+func UnpricedCost(model string) Cost { return Cost{Unpriced: []string{model}} }
+
+// Add combines two costs.
+//
+// Known is a conjunction, and that is the whole point: a run that priced two
+// models and not a third does not know its total, and reporting the priced part
+// as though it were the total would understate it. The unpriced names travel
+// with the figure so the caller can say which part is missing.
+func (c Cost) Add(o Cost) Cost {
+	out := Cost{USD: c.USD + o.USD, Known: c.Known && o.Known}
+	seen := map[string]bool{}
+	for _, m := range append(append([]string{}, c.Unpriced...), o.Unpriced...) {
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		out.Unpriced = append(out.Unpriced, m)
+	}
+	sort.Strings(out.Unpriced)
+	if len(out.Unpriced) > 0 {
+		out.Known = false
+	}
+	return out
+}
+
+// Partial reports whether some of the run was priced and some was not, which is
+// the case a caller has to render differently from both of the others.
+func (c Cost) Partial() bool { return !c.Known && c.USD > 0 }
+
+// String renders the cost. There is deliberately no path through this function
+// that emits a bare number for an unknown cost.
+func (c Cost) String() string {
+	switch {
+	case c.Known:
+		return fmt.Sprintf("$%.4f", c.USD)
+	case c.USD > 0:
+		return fmt.Sprintf("$%.4f (%d model(s) not priced: %s)",
+			c.USD, len(c.Unpriced), strings.Join(c.Unpriced, ", "))
+	case len(c.Unpriced) > 0:
+		return "not priced: " + strings.Join(c.Unpriced, ", ")
+	default:
+		return "not priced"
+	}
 }
 
 // Add accumulates another usage record into this one.
@@ -271,27 +353,29 @@ func (u *Usage) Add(o Usage) {
 	u.PromptTokens += o.PromptTokens
 	u.CompletionTokens += o.CompletionTokens
 	u.ToolCalls += o.ToolCalls
-	u.CostUSD += o.CostUSD
+	u.Cost = u.Cost.Add(o.Cost)
 }
 
 // Report is what an operator reads and what a machine consumer parses.
 type Report struct {
-	Schema          string           `json:"schema"`
-	RunID           string           `json:"run_id"`
-	GeneratedAt     time.Time        `json:"generated_at"`
-	Target          Target           `json:"target"`
-	Request         DiagnoseRequest  `json:"request"`
-	Topology        string           `json:"topology"`
-	Summary         string           `json:"summary"`
-	Hypotheses      []Hypothesis     `json:"hypotheses"`
-	Findings        []Finding        `json:"findings"`
-	ChecksPassed    []string         `json:"checks_passed"`
-	Gaps            []Gap            `json:"gaps"`
-	Recommendations []Recommendation `json:"recommendations"`
-	Evidence        []Evidence       `json:"evidence"`
-	Usage           Usage            `json:"usage"`
-	Truncated       bool             `json:"truncated"`
-	Notes           []string         `json:"notes,omitempty"`
+	Schema          string            `json:"schema"`
+	RunID           string            `json:"run_id"`
+	GeneratedAt     time.Time         `json:"generated_at"`
+	Target          Target            `json:"target"`
+	Request         DiagnoseRequest   `json:"request"`
+	Topology        string            `json:"topology"`
+	Summary         string            `json:"summary"`
+	Hypotheses      []Hypothesis      `json:"hypotheses"`
+	Findings        []Finding         `json:"findings"`
+	ChecksPassed    []string          `json:"checks_passed"`
+	Gaps            []Gap             `json:"gaps"`
+	Recommendations []Recommendation  `json:"recommendations"`
+	Evidence        []Evidence        `json:"evidence"`
+	Usage           Usage             `json:"usage"`
+	RoleUsage       []RoleUsage       `json:"role_usage,omitempty"`
+	Routing         map[string]string `json:"routing,omitempty"`
+	Truncated       bool              `json:"truncated"`
+	Notes           []string          `json:"notes,omitempty"`
 }
 
 // SortHypotheses orders hypotheses by descending confidence, refuted ones last,

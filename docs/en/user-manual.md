@@ -279,6 +279,34 @@ This project compares topologies; it does not score them. Declaring a winner
 would need a corpus of cases with known causes, which is separate work — so the
 cost figures above are measurements and the conclusions are yours to judge.
 
+### What a run cost, and who spent it
+
+Model calls and tool calls are always counted. Money is only reported when you
+have said what a model costs:
+
+```yaml
+llm:
+  pricing:
+    claude-opus-5: { input_per_mtok: 5.00, output_per_mtok: 25.00 }
+```
+
+**This project ships no price list**, because prices change and a stale number
+that looks authoritative is a false claim. A model with no price makes the run's
+cost *unknown* — never `$0.00`, which you would read as free. `mas models` shows
+which models are priced and which are not.
+
+Once priced, the report carries a per-role breakdown:
+
+| Role | Model calls | Tokens | Duration | Cost |
+|---|---:|---:|---:|---|
+| advocate | 3 | 4,200 | 2.1s | $0.0203 |
+| investigator | 4 | 3,100 | 0.8s | $0.0044 |
+
+That is what makes the topology comparison actionable. "Debate costs more" is a
+fact you can only act on once you know *where* the extra went: if it is all in
+the advocates, routing that one role to a cheaper model is a smaller change than
+abandoning the topology.
+
 ## 9. Extending the knowledge
 
 Middleware expertise lives in YAML packs, not in code. Adding a middleware needs

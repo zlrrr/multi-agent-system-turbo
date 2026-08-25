@@ -64,15 +64,19 @@ for t in single supervisor plan-execute debate blackboard; do
     --since 1h --format json --output "$OUT_DIR/topology.$t.json" >/dev/null
 done
 
-printf '%-14s %6s %6s %8s  %s\n' TOPOLOGY LLM TOOLS MS CONCLUSION
+printf '%-14s %6s %6s %8s %10s  %s\n' TOPOLOGY LLM TOOLS MS COST CONCLUSION
 for t in single supervisor plan-execute debate blackboard; do
   python3 "$ROOT/scripts/topology_row.py" "$OUT_DIR/topology.$t.json"
 done
 
 echo
-echo "Cost differs; the conclusion should not. This project compares topologies,"
-echo "it does not score them: declaring a winner would need a corpus of cases"
-echo "with known causes, which is separate work."
+echo "Cost differs; the conclusion should not. The price above is invented for a"
+echo "fictional model so this demo can show a figure — this project ships no price"
+echo "list. Remove llm.pricing and the column reads \"unpriced\" rather than \$0.00,"
+echo "because a zero would be read as free. \`mas models\` shows what is priced."
+echo
+echo "This project compares topologies, it does not score them: declaring a winner"
+echo "would need a corpus of cases with known causes, which is separate work."
 
 echo
 echo "reports written to:"

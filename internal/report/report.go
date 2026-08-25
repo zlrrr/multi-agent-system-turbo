@@ -30,7 +30,7 @@ type phrases struct {
 	title, generated, target, window, mode, topology            string
 	summary, hypotheses, findings, checks, gaps, recs, evidence string
 	usage, noHypotheses, noFindings, noGaps, noRecs, noEvidence string
-	run, symptom, cost                                          string
+	run, symptom, cost, byRole, role                            string
 	confidence, status, severity, origin, risk, advisoryNote    string
 	truncatedNote, supporting, contradicting, rationale, impact string
 	llmCalls, toolCalls, tokens, duration, rank, checksNone     string
@@ -56,6 +56,7 @@ var en = phrases{
 	llmCalls: "Model calls", toolCalls: "Tool calls", tokens: "Tokens", duration: "Duration",
 	rank: "Rank", checksNone: "No checks completed successfully.",
 	run: "Run", symptom: "Symptom", cost: "Cost",
+	byRole: "By role", role: "Role",
 }
 
 var zh = phrases{
@@ -77,6 +78,7 @@ var zh = phrases{
 	llmCalls: "模型调用", toolCalls: "工具调用", tokens: "Token", duration: "耗时",
 	rank: "排名", checksNone: "没有检查成功完成。",
 	run: "运行编号", symptom: "症状描述", cost: "成本",
+	byRole: "按角色", role: "角色",
 }
 
 func phrasesFor(lang string) phrases {
@@ -254,11 +256,50 @@ func Markdown(r *core.Report, lang string) ([]byte, error) {
 	fmt.Fprintf(&b, "| %s | %d |\n", p.toolCalls, r.Usage.ToolCalls)
 	fmt.Fprintf(&b, "| %s | %d |\n", p.tokens, r.Usage.PromptTokens+r.Usage.CompletionTokens)
 	fmt.Fprintf(&b, "| %s | %s |\n", p.duration, time.Duration(r.Usage.WallMillis)*time.Millisecond)
-	if r.Usage.CostUSD > 0 {
-		fmt.Fprintf(&b, "| %s | $%.4f |\n", p.cost, r.Usage.CostUSD)
+	// Cost is always shown, including when it is unknown. Omitting the row for
+	// an unpriced run leaves the reader to assume; printing a number they were
+	// never given is worse. Cost.Render is the only path, and it has no output
+	// that is a bare figure for an unknown amount (specs/005 CON-001).
+	fmt.Fprintf(&b, "| %s | %s |\n", p.cost, renderCost(r.Usage.Cost, lang))
+
+	if len(r.RoleUsage) > 1 {
+		fmt.Fprintf(&b, "\n### %s\n\n", p.byRole)
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n|---|---:|---:|---:|---|\n",
+			p.role, p.llmCalls, p.tokens, p.duration, p.cost)
+		for _, u := range r.RoleUsage {
+			fmt.Fprintf(&b, "| %s | %d | %d | %s | %s |\n",
+				u.Role, u.Calls, u.PromptTokens+u.CompletionTokens,
+				time.Duration(u.WallMillis)*time.Millisecond, renderCost(u.Cost, lang))
+		}
 	}
 
 	return []byte(b.String()), nil
+}
+
+// renderCost states an amount, or states that nobody knows it. A run whose
+// models were never priced must not be reported as having cost nothing.
+func renderCost(c core.Cost, lang string) string {
+	switch {
+	case c.Known:
+		return fmt.Sprintf("$%.4f", c.USD)
+	case c.Partial():
+		if lang == "zh" {
+			return fmt.Sprintf("$%.4f · %d 个模型未定价（%s）",
+				c.USD, len(c.Unpriced), strings.Join(c.Unpriced, "、"))
+		}
+		return fmt.Sprintf("$%.4f · %d model(s) not priced (%s)",
+			c.USD, len(c.Unpriced), strings.Join(c.Unpriced, ", "))
+	case len(c.Unpriced) > 0:
+		if lang == "zh" {
+			return "未定价（" + strings.Join(c.Unpriced, "、") + "）—— 请设置 llm.pricing"
+		}
+		return "not priced (" + strings.Join(c.Unpriced, ", ") + ") — set llm.pricing"
+	default:
+		if lang == "zh" {
+			return "未定价 —— 请设置 llm.pricing"
+		}
+		return "not priced — set llm.pricing"
+	}
 }
 
 func describeTarget(t core.Target) string {

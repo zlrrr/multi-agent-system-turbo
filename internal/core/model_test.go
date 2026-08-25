@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,10 +155,70 @@ func TestWindowValidate(t *testing.T) {
 }
 
 func TestUsageAdd(t *testing.T) {
-	u := Usage{LLMCalls: 1, ToolCalls: 2, PromptTokens: 10}
-	u.Add(Usage{LLMCalls: 2, ToolCalls: 3, CompletionTokens: 5, CostUSD: 0.1})
-	if u.LLMCalls != 3 || u.ToolCalls != 5 || u.PromptTokens != 10 || u.CompletionTokens != 5 || u.CostUSD != 0.1 {
+	u := Usage{LLMCalls: 1, ToolCalls: 2, PromptTokens: 10, Cost: KnownCost(0.2)}
+	u.Add(Usage{LLMCalls: 2, ToolCalls: 3, CompletionTokens: 5, Cost: KnownCost(0.1)})
+	if u.LLMCalls != 3 || u.ToolCalls != 5 || u.PromptTokens != 10 || u.CompletionTokens != 5 {
 		t.Fatalf("accumulation wrong: %+v", u)
+	}
+	if !u.Cost.Known || u.Cost.USD < 0.29 || u.Cost.USD > 0.31 {
+		t.Fatalf("cost = %+v, want a known 0.30", u.Cost)
+	}
+}
+
+// TestCostAddIsUnknownIfEitherIs is where an understatement would hide. A run
+// that priced two models and not a third does not know its total, and reporting
+// the priced part as though it were the whole would quietly understate it.
+func TestCostAddIsUnknownIfEitherIs(t *testing.T) {
+	known := KnownCost(0.5)
+	unpriced := UnpricedCost("claude-opus-5")
+
+	sum := known.Add(unpriced)
+	if sum.Known {
+		t.Error("a sum containing an unpriced model was reported as known")
+	}
+	if sum.USD != 0.5 {
+		t.Errorf("USD = %v; the priced part must survive so it can be reported", sum.USD)
+	}
+	if len(sum.Unpriced) != 1 || sum.Unpriced[0] != "claude-opus-5" {
+		t.Errorf("unpriced = %v; the caller must be able to name what is missing", sum.Unpriced)
+	}
+	if !sum.Partial() {
+		t.Error("a partly priced run must be distinguishable from a wholly unpriced one")
+	}
+
+	// Order must not matter, and the names must not duplicate.
+	other := unpriced.Add(known).Add(UnpricedCost("claude-opus-5"))
+	if len(other.Unpriced) != 1 {
+		t.Errorf("unpriced = %v, want the names deduplicated", other.Unpriced)
+	}
+
+	// Two known costs stay known, including when both are zero: a self-hosted
+	// model really is free, and saying so is not the same as saying nothing.
+	free := KnownCost(0).Add(KnownCost(0))
+	if !free.Known || free.Partial() {
+		t.Errorf("a measured zero = %+v, want known and not partial", free)
+	}
+}
+
+// TestCostNeverRendersUnknownAsANumber is the property the type exists for.
+func TestCostNeverRendersUnknownAsANumber(t *testing.T) {
+	for name, c := range map[string]Cost{
+		"nothing priced":     {},
+		"one model unpriced": UnpricedCost("claude-opus-5"),
+		"partly priced":      KnownCost(0.5).Add(UnpricedCost("qwen2.5")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := c.String()
+			if !strings.Contains(got, "not priced") {
+				t.Errorf("%q does not say the cost is unknown", got)
+			}
+			if got == "$0.0000" {
+				t.Errorf("an unknown cost rendered as %q, which an operator would believe", got)
+			}
+		})
+	}
+	if got := KnownCost(0).String(); got != "$0.0000" {
+		t.Errorf("a measured zero rendered as %q, want $0.0000", got)
 	}
 }
 

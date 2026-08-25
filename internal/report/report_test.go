@@ -257,3 +257,95 @@ func TestNoEnglishChromeInChineseReport(t *testing.T) {
 		}
 	}
 }
+
+// TestUnpricedRunSaysSoInBothLanguages is FR-006 and CON-001. Omitting the cost
+// row leaves the reader to assume; printing a figure they were never given is
+// worse, because they will believe it.
+func TestUnpricedRunSaysSoInBothLanguages(t *testing.T) {
+	for lang, want := range map[string]string{
+		"en": "not priced",
+		"zh": "未定价",
+	} {
+		r := fixture()
+		r.Usage.Cost = core.UnpricedCost("claude-opus-5")
+		out, err := report.Markdown(r, lang)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(out)
+		if !strings.Contains(body, want) {
+			t.Errorf("%s report does not say the cost is unknown:\n%s", lang, body)
+		}
+		if !strings.Contains(body, "claude-opus-5") {
+			t.Errorf("%s report does not name the unpriced model", lang)
+		}
+		if strings.Contains(body, "$0.0000") {
+			t.Errorf("%s report shows $0.0000 for a run that was never priced", lang)
+		}
+	}
+}
+
+// TestNoRenderedReportContainsBareZeroCost is the regression this feature's
+// whole type change exists to prevent, checked across every rendering path.
+func TestNoRenderedReportContainsBareZeroCost(t *testing.T) {
+	for name, cost := range map[string]core.Cost{
+		"never set":     {},
+		"one unpriced":  core.UnpricedCost("some-model"),
+		"partly priced": core.KnownCost(0.25).Add(core.UnpricedCost("some-model")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := fixture()
+			r.Usage.Cost = cost
+			for _, lang := range []string{"en", "zh"} {
+				out, err := report.Markdown(r, lang)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(string(out), "| $0.0000 |") {
+					t.Errorf("%s/%s renders an unknown cost as $0.0000", name, lang)
+				}
+			}
+			j, err := report.JSON(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(j), `"known": false`) {
+				t.Errorf("%s: JSON does not mark the cost unknown:\n%s", name, j)
+			}
+		})
+	}
+
+	// A measured zero must still render as a figure: a run that really cost
+	// nothing should say so.
+	r := fixture()
+	r.Usage.Cost = core.KnownCost(0)
+	out, _ := report.Markdown(r, "en")
+	if !strings.Contains(string(out), "$0.0000") {
+		t.Error("a measured zero was not rendered as $0.0000")
+	}
+}
+
+// TestReportCarriesPerRoleBreakdown is FR-008: the table has to reach the
+// reader, and it has to add up to the figure above it.
+func TestReportCarriesPerRoleBreakdown(t *testing.T) {
+	r := fixture()
+	r.Usage.Cost = core.KnownCost(0.30)
+	r.RoleUsage = []core.RoleUsage{
+		{Role: "advocate", Provider: "anthropic", Model: "opus", Calls: 3,
+			PromptTokens: 900, CompletionTokens: 300, WallMillis: 2100, Cost: core.KnownCost(0.20)},
+		{Role: "investigator", Provider: "openai", Model: "local", Calls: 4,
+			PromptTokens: 400, CompletionTokens: 100, WallMillis: 800, Cost: core.KnownCost(0.10)},
+	}
+	for _, lang := range []string{"en", "zh"} {
+		out, err := report.Markdown(r, lang)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(out)
+		for _, want := range []string{"advocate", "investigator", "$0.2000", "$0.1000"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s report omits %q", lang, want)
+			}
+		}
+	}
+}

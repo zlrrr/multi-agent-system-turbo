@@ -72,3 +72,4 @@ Redis is at its configured memory ceiling. Eviction began before latency rose an
 | Tool calls | 7 |
 | Tokens | 13800 |
 | Duration | 4.2s |
+| Cost | not priced — set llm.pricing |

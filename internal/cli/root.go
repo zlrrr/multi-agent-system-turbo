@@ -133,6 +133,7 @@ anything it inspects: every recommendation is for a human operator to carry out.
 		newRunsCmd(e),
 		newTargetsCmd(e),
 		newTopologiesCmd(e),
+		newModelsCmd(e),
 		newPacksCmd(e),
 		newToolsCmd(e),
 		newErrCodesCmd(e),

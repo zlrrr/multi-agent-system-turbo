@@ -16,6 +16,16 @@ llm:
   provider: mock
   model: mock-1
 
+  # Prices are operator-supplied: this project ships none, because they change,
+  # differ by contract, and a stale number that looks authoritative is a false
+  # claim. The rate below is invented for a fictional model so the demo can show
+  # a real figure. Remove it and every run reports its cost as "unpriced" — never
+  # as $0.00, which an operator would read as free.
+  pricing:
+    mock-1:
+      input_per_mtok: 3.00
+      output_per_mtok: 15.00
+
 telemetry:
   metrics:
     - name: primary

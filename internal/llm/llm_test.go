@@ -90,7 +90,7 @@ func TestPerAgentModelOverride(t *testing.T) {
 
 func TestCountingAccumulatesUsage(t *testing.T) {
 	p, _ := llm.Open(config.LLMConfig{Provider: "mock"})
-	c := llm.NewCounting(p)
+	c := llm.NewCounting(p, nil)
 	for i := 0; i < 3; i++ {
 		if _, err := c.Complete(context.Background(), llm.Request{
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: "role: reporter"}},

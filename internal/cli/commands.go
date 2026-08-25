@@ -753,3 +753,111 @@ func isWide(r rune) bool {
 		return false
 	}
 }
+
+func newModelsCmd(e *env) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "models",
+		Short: "Show which provider and model each agent role will use",
+		Long: `Effective routing is derived, not configured: this answers "what will actually
+happen", which is a different question from what ` + "`mas config`" + ` answers.
+
+It also reports whether each model has a price. A model with no entry under
+llm.pricing makes the run's cost unknown — never zero, which an operator would
+read as free.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			svc, err := e.load()
+			if err != nil {
+				return err
+			}
+			cfg := svc.Config()
+
+			router, err := llm.NewRouter(cfg.LLM)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = router.Close() }()
+
+			pricing := llm.Pricing(cfg.LLM.Pricing)
+			type row struct {
+				Role        string  `json:"role"`
+				Provider    string  `json:"provider"`
+				Model       string  `json:"model"`
+				Temperature float64 `json:"temperature"`
+				Priced      bool    `json:"priced"`
+			}
+			routes := router.Routes()
+			roles := make([]string, 0, len(routes))
+			for role := range routes {
+				roles = append(roles, role)
+			}
+			sort.Strings(roles)
+
+			rows := make([]row, 0, len(roles))
+			for _, role := range roles {
+				rt := routes[role]
+				rows = append(rows, row{
+					Role: role, Provider: rt.Name, Model: rt.Model,
+					Temperature: rt.Temperature, Priced: pricing.Priced(rt.Model),
+				})
+			}
+			if asJSON {
+				return writeJSON(e.out, rows)
+			}
+
+			w := tabwriter.NewWriter(e.out, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "ROLE\tPROVIDER\tMODEL\tTEMP\tPRICED")
+			for _, r := range rows {
+				priced := "no"
+				if r.Priced {
+					priced = "yes"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%.2f\t%s\n", r.Role, r.Provider, r.Model, r.Temperature, priced)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+
+			var unpriced []string
+			for _, r := range rows {
+				if !r.Priced && r.Model != "" {
+					unpriced = append(unpriced, r.Model)
+				}
+			}
+			if len(unpriced) > 0 {
+				fmt.Fprintf(e.out, "\n%s\n", wrap(unpricedNotice(e.lang(), unique(unpriced)), 92, ""))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	return cmd
+}
+
+// unpricedNotice explains what an unpriced model means for the report, because
+// "PRICED no" on its own reads like a missing feature rather than a stated
+// unknown.
+func unpricedNotice(lang string, models []string) string {
+	if lang == "zh" {
+		return "以下模型未定价：" + strings.Join(models, "、") +
+			"。这些运行的成本会被报告为“未定价”，而不是 0 —— " +
+			"0 会被读成“免费”。在 llm.pricing 下为它们设置价格即可得到成本数字。"
+	}
+	return "Not priced: " + strings.Join(models, ", ") +
+		". Runs using them report their cost as unknown rather than as zero, which would " +
+		"read as free. Set prices under llm.pricing to get a figure."
+}
+
+func unique(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}

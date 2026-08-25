@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.1.3 · **Status**: approved · **Date**: 2026-08-24
+> **Version**: 1.1.4 · **Status**: approved · **Date**: 2026-08-24
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -188,8 +188,8 @@ disconnected parts.
 | P1-2 | Source-code acquisition with network→local fallback + code search | G6 | Delivered in M1 |
 | P1-3 | Knowledge packs: MongoDB, Pulsar, Milvus, OceanBase | G2.2 | Delivered (`specs/002-middleware-packs`) |
 | P1-4 | Topologies: `plan-execute`, `debate`, `blackboard` | G7.2 | Delivered (`specs/003-switchable-topologies`) |
-| P1-5 | Per-agent model routing | G8.2 | Planned |
-| P1-6 | Cost/latency/token accounting surfaced per run | G7.4 | Planned |
+| P1-5 | Per-agent model routing | G8.2 | Delivered (`specs/005-model-routing-and-cost`) |
+| P1-6 | Cost/latency/token accounting surfaced per run | G7.4 | Delivered, per role (`specs/005-model-routing-and-cost`) |
 | P1-7 | Kubernetes in-container `exec` (read-only commands) | G5.1 | Delivered (`specs/004-kube-exec`) |
 
 ### Milestone M3 — experimentation & quality
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.1.4 | 2026-08-25 | M2's P1-5 and P1-6 recorded as delivered, completing M2: a role can be routed to a different provider, and a run reports what it cost per role — or states plainly that nobody priced it, rather than reporting zero | Backlog reflects delivered scope; no goal changed | `specs/005-model-routing-and-cost/` |
 | 1.1.3 | 2026-08-25 | M2's P1-7 recorded as delivered, which completes M2's exit criteria: a knowledge pack's read-only commands now run inside a pod under the same allow-list that governs them on a host | Backlog reflects delivered scope; no goal changed | `specs/004-kube-exec/` |
 | 1.1.2 | 2026-08-24 | M2's P1-4 recorded as delivered: five topologies now ship against one conformance contract, so the "switchable architecture" goal is testable rather than asserted | Backlog reflects delivered scope; no goal changed | `specs/003-switchable-topologies/` |
 | 1.1.1 | 2026-08-24 | M2's P1-3 recorded as delivered (MongoDB, Pulsar, Milvus and OceanBase packs); M3's P2-3 pulled forward and delivered alongside it, because a conformance contract written after the packs would have been shaped by them; Kubernetes in-container `exec` given its own rank (P1-7) instead of living only in a change-log sentence | Backlog reflects delivered scope; no goal changed | `specs/002-middleware-packs/` |

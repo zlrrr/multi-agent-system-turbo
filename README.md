@@ -101,7 +101,7 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 | **Telemetry** | Prometheus, VictoriaMetrics, Thanos, Mimir; Loki |
 | **Environments** | Kubernetes (read-only API, plus opt-out in-container inspection); local host |
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |
-| **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock |
+| **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock — routable per agent role, with cost reported per role when you supply prices |
 | **Topologies** | `supervisor` (default), `single` (control condition), `plan-execute` (adaptive), `debate` (adversarial), `blackboard` (data-driven) |
 | **Interfaces** | CLI, HTTP API, container image |
 

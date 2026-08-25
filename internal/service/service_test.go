@@ -729,3 +729,96 @@ func TestDoctorReportsExecAvailability(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+// TestRunRecordCarriesRouting is FR-012: a topology comparison is only
+// reproducible if the report says which model produced it.
+func TestRunRecordCarriesRouting(t *testing.T) {
+	svc := newService(t, newStubs(t, 0.99, true), func(c *config.Config) {
+		c.LLM.PerAgent = map[string]config.AgentModel{
+			"investigator": {Provider: "cheap"},
+		}
+		c.LLM.Providers = map[string]config.ProviderConfig{
+			"cheap": {Model: "cheap-mock"},
+		}
+	})
+	rep, err := svc.Diagnose(context.Background(), core.DiagnoseRequest{
+		Target: "redis-prod", Symptom: "p99 latency spike with evictions",
+		Mode: core.ModeOffline,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Routing) == 0 {
+		t.Fatal("the report does not record which models produced it")
+	}
+	if got := rep.Routing["investigator"]; got != "cheap/cheap-mock" {
+		t.Errorf("investigator routed to %q, want cheap/cheap-mock", got)
+	}
+	if _, ok := rep.Routing["(default)"]; !ok {
+		t.Error("the default route is not recorded, so roles with no override are unexplained")
+	}
+}
+
+// TestReportCostIsUnknownWithoutPricing is FR-005 end to end. The demo and the
+// default configuration price nothing, so every run must say so rather than
+// claiming it was free.
+func TestReportCostIsUnknownWithoutPricing(t *testing.T) {
+	svc := newService(t, newStubs(t, 0.99, true), nil)
+	rep, err := svc.Diagnose(context.Background(), core.DiagnoseRequest{
+		Target: "redis-prod", Symptom: "p99 latency spike with evictions",
+		Mode: core.ModeOffline,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Usage.LLMCalls == 0 {
+		t.Fatal("no model call was made, so there is nothing to price")
+	}
+	if rep.Usage.Cost.Known {
+		t.Errorf("cost = %+v; nothing was priced, so it cannot be known", rep.Usage.Cost)
+	}
+	if len(rep.Usage.Cost.Unpriced) == 0 {
+		t.Error("the report does not name the model it could not price")
+	}
+}
+
+// TestReportCostIsKnownWithPricing is the other half, and the per-role
+// breakdown that makes a cost actionable.
+func TestReportCostIsKnownWithPricing(t *testing.T) {
+	svc := newService(t, newStubs(t, 0.99, true), func(c *config.Config) {
+		c.LLM.Pricing = map[string]config.ModelPrice{
+			"mock-1": {InputPerMTok: 3, OutputPerMTok: 15},
+		}
+	})
+	rep, err := svc.Diagnose(context.Background(), core.DiagnoseRequest{
+		Target: "redis-prod", Symptom: "p99 latency spike with evictions",
+		Mode: core.ModeOffline,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Usage.Cost.Known {
+		t.Fatalf("cost = %+v, want known once every model is priced", rep.Usage.Cost)
+	}
+	if rep.Usage.Cost.USD <= 0 {
+		t.Errorf("cost = %v; a run that made model calls at a non-zero price cost something",
+			rep.Usage.Cost.USD)
+	}
+	if len(rep.RoleUsage) == 0 {
+		t.Fatal("the report carries no per-role breakdown")
+	}
+
+	// The breakdown must add up to the figure above it.
+	var sum float64
+	var calls int
+	for _, u := range rep.RoleUsage {
+		sum += u.Cost.USD
+		calls += u.Calls
+	}
+	if sum < rep.Usage.Cost.USD-1e-9 || sum > rep.Usage.Cost.USD+1e-9 {
+		t.Errorf("per-role costs sum to %v, the total says %v", sum, rep.Usage.Cost.USD)
+	}
+	if calls != rep.Usage.LLMCalls {
+		t.Errorf("per-role calls sum to %d, the total says %d", calls, rep.Usage.LLMCalls)
+	}
+}

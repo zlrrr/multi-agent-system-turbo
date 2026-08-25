@@ -455,3 +455,48 @@ func TestTopologiesCommandDescribesEveryTopologyBilingually(t *testing.T) {
 		}
 	}
 }
+
+// TestModelsCommandShowsEffectiveRouting is FR-011: an operator needs to see
+// what will actually happen, and whether the result will carry a cost figure.
+func TestModelsCommandShowsEffectiveRouting(t *testing.T) {
+	h := newHarness(t)
+	out, errOut, code := h.run("models")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, want := range []string{"ROLE", "PROVIDER", "MODEL", "PRICED", "(default)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("`mas models` omits %q:\n%s", want, out)
+		}
+	}
+	// The demo configuration prices nothing, so the notice must appear and must
+	// explain what that means rather than only flagging it.
+	if !strings.Contains(out, "Not priced") {
+		t.Errorf("an unpriced model was not flagged:\n%s", out)
+	}
+	if !strings.Contains(out, "unknown rather than as zero") {
+		t.Errorf("the notice does not explain what unpriced means for the report:\n%s", out)
+	}
+
+	jsonOut, _, code := h.run("models", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	var rows []struct {
+		Role     string `json:"role"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		Priced   bool   `json:"priced"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &rows); err != nil {
+		t.Fatalf("--json is not valid JSON: %v\n%s", err, jsonOut)
+	}
+	if len(rows) == 0 {
+		t.Fatal("--json listed no roles")
+	}
+	for _, r := range rows {
+		if r.Role == "" || r.Provider == "" {
+			t.Errorf("incomplete row: %+v", r)
+		}
+	}
+}

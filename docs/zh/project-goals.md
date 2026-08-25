@@ -1,6 +1,6 @@
 # 项目目标 — multi-agent-system-turbo（MAS-Turbo）
 
-> **版本**：1.1.3 · **状态**：已批准 · **日期**：2026-08-24
+> **版本**：1.1.4 · **状态**：已批准 · **日期**：2026-08-24
 > **双语对应文件**：[`../en/project-goals.md`](../en/project-goals.md)
 > **受管辖于**：[`.specify/memory/constitution.zh.md`](../../.specify/memory/constitution.zh.md) v1.0.0
 > **下游**：`specs/001-*/spec.zh.md`、`specs/002-*/spec.zh.md`、…
@@ -184,8 +184,8 @@ Pulsar、Kafka、OceanBase、Milvus 等 —— 通过关联指标、日志、集
 | P1-2 | 源码获取（网络→本地回退）与代码检索 | G6 | 已在 M1 交付 |
 | P1-3 | 知识包：MongoDB、Pulsar、Milvus、OceanBase | G2.2 | 已交付（`specs/002-middleware-packs`） |
 | P1-4 | 拓扑：`plan-execute`、`debate`、`blackboard` | G7.2 | 已交付（`specs/003-switchable-topologies`） |
-| P1-5 | 按 Agent 的模型路由 | G8.2 | 计划中 |
-| P1-6 | 按运行呈现成本/时延/token 统计 | G7.4 | 计划中 |
+| P1-5 | 按 Agent 的模型路由 | G8.2 | 已交付（`specs/005-model-routing-and-cost`） |
+| P1-6 | 按运行呈现成本/时延/token 统计 | G7.4 | 已交付，且细化到角色（`specs/005-model-routing-and-cost`） |
 | P1-7 | Kubernetes 容器内 `exec`（只读命令） | G5.1 | 已交付（`specs/004-kube-exec`） |
 
 ### 里程碑 M3 —— 实验与质量
@@ -228,6 +228,7 @@ Pulsar、Kafka、OceanBase、Milvus 等 —— 通过关联指标、日志、集
 
 | 版本 | 日期 | 修订内容 | 理由 | 级联至 |
 |---|---|---|---|---|
+| 1.1.4 | 2026-08-25 | 记录 M2 的 P1-5 与 P1-6 已交付，M2 由此完成：角色可被路由到不同的 provider；一次运行会按角色报告其成本 —— 或者直说"没人给它定过价"，而不是报告 0 | backlog 反映已交付范围；目标本身未变 | `specs/005-model-routing-and-cost/` |
 | 1.1.3 | 2026-08-25 | 记录 M2 的 P1-7 已交付，M2 的出口条件由此全部达成：知识包的只读命令现在能在 Pod 内执行，且受与主机上完全相同的白名单约束 | backlog 反映已交付范围；目标本身未变 | `specs/004-kube-exec/` |
 | 1.1.2 | 2026-08-24 | 记录 M2 的 P1-4 已交付：现已内置五种拓扑，且全部对着同一份一致性契约，因此"架构可切换"这一目标是可检验的，而不只是断言 | backlog 反映已交付范围；目标本身未变 | `specs/003-switchable-topologies/` |
 | 1.1.1 | 2026-08-24 | 记录 M2 的 P1-3 已交付（MongoDB、Pulsar、Milvus、OceanBase 知识包）；M3 的 P2-3 提前并与之一并交付 —— 若在知识包写完之后才写一致性契约，那份契约会被知识包反向塑形；Kubernetes 容器内 `exec` 单独列为 P1-7，而不再只存在于一句变更记录里 | backlog 反映已交付范围；目标本身未变 | `specs/002-middleware-packs/` |

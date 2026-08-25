@@ -8,8 +8,10 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/tool"
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
@@ -49,9 +51,8 @@ type ToolDefinition struct {
 
 // Usage accounts for one completion.
 type Usage struct {
-	PromptTokens     int     `json:"prompt_tokens"`
-	CompletionTokens int     `json:"completion_tokens"`
-	CostUSD          float64 `json:"cost_usd,omitempty"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
 }
 
 // Request is one completion request.
@@ -62,6 +63,12 @@ type Request struct {
 	Temperature float64
 	MaxTokens   int
 	System      string
+
+	// Agent is the diagnostic role that issued this request — planner,
+	// investigator, advocate. It is not llm.Role, which identifies the author
+	// of a message; this is who is doing the reasoning, and it is what makes
+	// cost attributable to a role rather than only to a run.
+	Agent string
 }
 
 // StopReason explains why generation ended.
@@ -155,30 +162,138 @@ func Definitions(defs []tool.Definition) []ToolDefinition {
 	return out
 }
 
-// Counting wraps a provider and accumulates usage across a run, so accounting
-// does not have to be repeated in every agent (FR-019).
-type Counting struct {
-	inner Provider
-	mu    sync.Mutex
-	calls int
-	usage Usage
+// Ledger is one run's accounting. It is separate from the provider wrapper
+// because a run may reach several providers — routing exists precisely so it
+// can — and a total that lived in one wrapper would count only that one.
+//
+// Governs: specs/005-model-routing-and-cost/design-lld.md §5
+type Ledger struct {
+	mu     sync.Mutex
+	calls  int
+	usage  Usage
+	cost   core.Cost
+	byRole map[string]*core.RoleUsage
 }
 
-// NewCounting wraps a provider with usage accounting.
-func NewCounting(p Provider) *Counting { return &Counting{inner: p} }
+// NewLedger builds an empty ledger. Cost starts known and zero: a run that
+// makes no model call really did cost nothing.
+func NewLedger() *Ledger {
+	return &Ledger{byRole: map[string]*core.RoleUsage{}, cost: core.KnownCost(0)}
+}
+
+// record accounts for one exchange, attributing it to the role that made it.
+// The attribution happens inside the mutex that guards the total, so the
+// breakdown cannot drift from the sum it forms.
+func (l *Ledger) record(agent, provider, model string, u Usage, elapsed time.Duration, cost core.Cost) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls++
+	l.usage.PromptTokens += u.PromptTokens
+	l.usage.CompletionTokens += u.CompletionTokens
+	l.cost = l.cost.Add(cost)
+
+	role := agent
+	if role == "" {
+		role = "(unattributed)"
+	}
+	entry, ok := l.byRole[role]
+	if !ok {
+		entry = &core.RoleUsage{Role: role, Provider: provider, Model: model}
+		l.byRole[role] = entry
+	}
+	entry.Calls++
+	entry.PromptTokens += u.PromptTokens
+	entry.CompletionTokens += u.CompletionTokens
+	entry.WallMillis += elapsed.Milliseconds()
+	entry.Cost = entry.Cost.Add(cost)
+}
+
+// Totals reports accumulated usage.
+func (l *Ledger) Totals() (calls int, u Usage) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls, l.usage
+}
+
+// Cost reports what the run spent, or that nobody knows.
+func (l *Ledger) Cost() core.Cost {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cost
+}
+
+// ByRole reports the per-role breakdown, ordered by descending cost, then
+// descending calls, then role name — a total order, so two runs of the same
+// case produce the same table.
+func (l *Ledger) ByRole() []core.RoleUsage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]core.RoleUsage, 0, len(l.byRole))
+	for _, u := range l.byRole {
+		out = append(out, *u)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Cost.USD != out[j].Cost.USD {
+			return out[i].Cost.USD > out[j].Cost.USD
+		}
+		if out[i].Calls != out[j].Calls {
+			return out[i].Calls > out[j].Calls
+		}
+		return out[i].Role < out[j].Role
+	})
+	return out
+}
+
+// Counting wraps a provider and records every exchange in a ledger, so
+// accounting does not have to be repeated in every agent (FR-019).
+type Counting struct {
+	inner   Provider
+	pricing Pricing
+	ledger  *Ledger
+}
+
+// NewCounting wraps a provider with its own ledger.
+func NewCounting(p Provider, pricing Pricing) *Counting {
+	return NewCountingOn(p, pricing, NewLedger())
+}
+
+// NewCountingOn wraps a provider onto a shared ledger, which is how a run that
+// routes roles to several providers still totals to one figure.
+func NewCountingOn(p Provider, pricing Pricing, l *Ledger) *Counting {
+	if l == nil {
+		l = NewLedger()
+	}
+	return &Counting{inner: p, pricing: pricing, ledger: l}
+}
 
 // Name reports the wrapped provider's name.
 func (c *Counting) Name() string { return c.inner.Name() }
 
-// Complete delegates and records usage.
+// Ledger exposes the accounting this wrapper writes to.
+func (c *Counting) Ledger() *Ledger { return c.ledger }
+
+// Complete delegates, then records what it cost and who spent it.
 func (c *Counting) Complete(ctx context.Context, req Request) (Response, error) {
+	started := time.Now()
 	resp, err := c.inner.Complete(ctx, req)
-	c.mu.Lock()
-	c.calls++
-	c.usage.PromptTokens += resp.Usage.PromptTokens
-	c.usage.CompletionTokens += resp.Usage.CompletionTokens
-	c.usage.CostUSD += resp.Usage.CostUSD
-	c.mu.Unlock()
+	elapsed := time.Since(started)
+
+	// The served model is authoritative — a provider may answer with an alias,
+	// or fall back — so that is what gets recorded and priced first. But an
+	// operator who priced the name they asked for should not be told the run is
+	// unpriced because the provider answered with a different string, so the
+	// requested name is tried before giving up.
+	served := resp.Model
+	if served == "" {
+		served = req.Model
+	}
+	cost := c.pricing.CostOf(served, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	if !cost.Known && req.Model != "" && req.Model != served {
+		if alt := c.pricing.CostOf(req.Model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens); alt.Known {
+			cost = alt
+		}
+	}
+	c.ledger.record(req.Agent, c.inner.Name(), served, resp.Usage, elapsed, cost)
 	return resp, err
 }
 
@@ -186,8 +301,10 @@ func (c *Counting) Complete(ctx context.Context, req Request) (Response, error) 
 func (c *Counting) Close() error { return c.inner.Close() }
 
 // Totals reports accumulated usage.
-func (c *Counting) Totals() (calls int, u Usage) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.calls, c.usage
-}
+func (c *Counting) Totals() (calls int, u Usage) { return c.ledger.Totals() }
+
+// Cost reports what the run spent, or that nobody knows.
+func (c *Counting) Cost() core.Cost { return c.ledger.Cost() }
+
+// ByRole reports the per-role breakdown.
+func (c *Counting) ByRole() []core.RoleUsage { return c.ledger.ByRole() }

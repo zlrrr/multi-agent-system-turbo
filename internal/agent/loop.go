@@ -55,17 +55,19 @@ func runLoop(ctx context.Context, s *State, opts loopOptions) (string, error) {
 			return lastText, nil
 		}
 
+		route := s.Route(string(opts.role))
 		started := time.Now()
-		resp, err := s.Provider.Complete(ctx, llm.Request{
-			Model:       llm.ModelFor(s.LLMConfig, string(opts.role)),
-			Temperature: llm.TemperatureFor(s.LLMConfig, string(opts.role)),
+		resp, err := route.Provider.Complete(ctx, llm.Request{
+			Model:       route.Model,
+			Temperature: route.Temperature,
 			System:      opts.system,
 			Messages:    messages,
 			Tools:       defs,
+			Agent:       string(opts.role),
 		})
 		s.AddUsage(core.Usage{
 			LLMCalls: 1, PromptTokens: resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens, CostUSD: resp.Usage.CostUSD,
+			CompletionTokens: resp.Usage.CompletionTokens,
 		})
 		recordLLMStep(ctx, s, opts, resp, err, time.Since(started))
 

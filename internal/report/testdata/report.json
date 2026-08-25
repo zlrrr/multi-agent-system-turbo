@@ -135,6 +135,10 @@
     "prompt_tokens": 12000,
     "completion_tokens": 1800,
     "tool_calls": 7,
+    "cost": {
+      "usd": 0,
+      "known": false
+    },
     "wall_millis": 4200
   },
   "truncated": false

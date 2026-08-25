@@ -83,6 +83,11 @@ type State struct {
 	// not an audit trail (Constitution Art. V.3).
 	Sink tool.StepSink
 
+	// Router resolves which provider and model each role uses. Provider stays
+	// as the run's default so a caller that needs only one still has it, and so
+	// existing tests construct a State the same way.
+	Router *llm.Router
+
 	mu              sync.Mutex
 	evidence        []core.Evidence
 	gaps            []core.Gap
@@ -100,6 +105,22 @@ type State struct {
 
 // NewState builds a state with the clock started.
 func NewState() *State { return &State{startedAt: time.Now()} }
+
+// Route resolves the provider, model and temperature for a role. Without a
+// router — a test, or a single-provider run — every role uses the run's default
+// provider with the per-agent model and temperature overrides applied, which is
+// exactly what happened before routing existed.
+func (s *State) Route(role string) llm.Route {
+	if s.Router != nil {
+		return s.Router.For(role)
+	}
+	return llm.Route{
+		Name:        "default",
+		Provider:    s.Provider,
+		Model:       llm.ModelFor(s.LLMConfig, role),
+		Temperature: llm.TemperatureFor(s.LLMConfig, role),
+	}
+}
 
 // Start records the run's start time, from which the wall-clock budget runs.
 func (s *State) Start() {

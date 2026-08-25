@@ -63,19 +63,66 @@ default; `redact` is for values specific to you.
 | `max_tokens` | `4096` | Cap per completion |
 | `temperature` | `0` | Sampling temperature |
 | `mock_script` | — | Path to a scripted transcript (mock provider only) |
-| `per_agent` | — | Per-role `model` and `temperature` overrides |
+| `per_agent` | — | Per-role `provider`, `model` and `temperature` overrides |
+| `providers` | — | Named alternative providers a role may be routed to |
+| `pricing` | — | Per-model prices, used to compute a run's cost |
+
+### Routing roles to different models
 
 `per_agent` exists because roles have different needs. Investigators mostly
-extract and summarise; correlation and critique are where judgement is required:
+extract and summarise; correlation and critique are where judgement is required.
+A role may override the model, the temperature, or the **provider** entirely:
 
 ```yaml
 llm:
   provider: anthropic
   model: claude-opus-5              # correlator, critic, reporter
+  api_key: ${env:ANTHROPIC_API_KEY}
+
+  providers:                        # named alternatives
+    local:
+      provider: openai
+      base_url: http://127.0.0.1:11434/v1
+      model: qwen2.5:14b
+
   per_agent:
-    investigator:
-      model: claude-haiku-4-5-20251001
+    investigator: { provider: local }     # cheap extraction
+    executor:     { provider: local }
+    correlator:   { temperature: 0.1 }    # default provider, cooler
 ```
+
+A named provider inherits every field of the default it does not set, and a role
+inherits everything it does not override. That matters more than it looks: a role
+that changes only the temperature must not lose the endpoint and the key, and
+restating settings per role is how a production run fails on the one field
+somebody forgot.
+
+Every provider a run routes to is opened when the run is admitted, so a bad
+credential refuses the run rather than becoming a gap discovered three minutes
+in. Run `mas models` to see the routing that will actually be used.
+
+### Pricing
+
+**This project ships no price list.** Prices change, differ by contract and
+region, and a stale number that looks authoritative is a false claim. So prices
+are yours to supply:
+
+```yaml
+llm:
+  pricing:
+    claude-opus-5:  { input_per_mtok: 5.00, output_per_mtok: 25.00 }
+    qwen2.5:14b:    { input_per_mtok: 0,    output_per_mtok: 0 }   # self-hosted
+```
+
+A model with **no entry** makes the run's cost *unknown*. It is never reported as
+zero — a report claiming a run cost nothing is worse than one that says nothing,
+because you would believe it. A configured price of exactly `0` is different and
+stays known: a self-hosted model really is free at the margin, and writing `0`
+says so deliberately.
+
+A run that priced some models and not others reports the priced part **and**
+names what it could not price, so the figure is never mistaken for the total.
+`mas doctor` and `mas models` both report which models are priced.
 
 The `mock` provider replays a scripted transcript. It is what makes the test
 suite deterministic and the demo credential-free; `mas doctor` warns when it is

@@ -80,8 +80,23 @@ type LogConfig struct {
 
 // AgentModel overrides the model used by one agent role (G8.2).
 type AgentModel struct {
+	// Provider names an entry in LLMConfig.Providers. Empty means the run's
+	// default provider — a role that overrides only the temperature must not
+	// lose the endpoint and the key that go with it.
+	Provider    string  `yaml:"provider" json:"provider"`
 	Model       string  `yaml:"model" json:"model"`
 	Temperature float64 `yaml:"temperature" json:"temperature"`
+}
+
+// ModelPrice is what one model costs, per million tokens.
+//
+// This project ships no prices. They change, differ by contract and region, and
+// a stale number that looks authoritative is a false claim — so they are
+// configuration, and a model with no entry makes the run's cost unknown rather
+// than zero.
+type ModelPrice struct {
+	InputPerMTok  float64 `yaml:"input_per_mtok" json:"input_per_mtok"`
+	OutputPerMTok float64 `yaml:"output_per_mtok" json:"output_per_mtok"`
 }
 
 // LLMConfig selects and configures the model provider.
@@ -95,6 +110,26 @@ type LLMConfig struct {
 	Temperature float64               `yaml:"temperature" json:"temperature"`
 	MockScript  string                `yaml:"mock_script" json:"mock_script"` // path, mock provider only
 	PerAgent    map[string]AgentModel `yaml:"per_agent" json:"per_agent"`
+
+	// Providers are named alternatives a role may be routed to. Each inherits
+	// every field of the default it does not set.
+	Providers map[string]ProviderConfig `yaml:"providers" json:"providers"`
+
+	// Pricing is the operator's price list, keyed by model.
+	Pricing map[string]ModelPrice `yaml:"pricing" json:"pricing"`
+}
+
+// ProviderConfig is a named alternative provider. Every field is optional: what
+// it does not set, it inherits from the run's default provider.
+type ProviderConfig struct {
+	Provider    string   `yaml:"provider" json:"provider"`
+	Model       string   `yaml:"model" json:"model"`
+	APIKey      Secret   `yaml:"api_key" json:"api_key"`
+	BaseURL     string   `yaml:"base_url" json:"base_url"`
+	Timeout     Duration `yaml:"timeout" json:"timeout"`
+	MaxTokens   int      `yaml:"max_tokens" json:"max_tokens"`
+	Temperature float64  `yaml:"temperature" json:"temperature"`
+	MockScript  string   `yaml:"mock_script" json:"mock_script"`
 }
 
 // AuthConfig describes how to authenticate against a telemetry backend.
