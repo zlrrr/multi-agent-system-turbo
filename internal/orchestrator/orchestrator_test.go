@@ -252,3 +252,25 @@ func TestSupervisorSkipsDomainsWithNoTools(t *testing.T) {
 		}
 	}
 }
+
+// TestRegistryRejectsDuplicate pins the registry's loudest contract. Two
+// topologies under one name would make `--topology supervisor` mean whichever
+// package happened to init last, so the registry panics at init rather than
+// letting a build ship with an ambiguous name.
+//
+// This test was declared by feature 001's task table and never written; the
+// verifier now checks that declared tests exist, which is how that was found.
+func TestRegistryRejectsDuplicate(t *testing.T) {
+	defer func() {
+		got := recover()
+		if got == nil {
+			t.Fatal("registering a duplicate topology was accepted; --topology would be ambiguous")
+		}
+		msg, _ := got.(string)
+		if !strings.Contains(msg, "duplicate") || !strings.Contains(msg, "supervisor") {
+			t.Errorf("panic message %q does not name the problem and the topology", msg)
+		}
+	}()
+	orchestrator.Register("supervisor", orchestrator.Description{},
+		func() (orchestrator.Orchestrator, error) { return nil, nil })
+}

@@ -28,14 +28,14 @@ artifacts:
     derived_from_version: 1.0.0
   - id: lld
     path: design-lld.md
-    version: 1.0.3
+    version: 1.0.5
     upstream: hld
     derived_from_version: 1.0.0
   - id: tasks
-    # Re-reviewed against lld 1.0.3: the citation and CLI-language corrections
-    # change no task — they are covered by T034's agent checkpoint and T050's
-    # CLI checkpoint, which now carry the regression tests that pin them.
+    # Re-reviewed against lld 1.0.4: T032 and T033 were marked done while the
+    # tests they declared did not exist. Their rows now name the tests that
+    # actually exist, and the Correction section above says what happened.
     path: tasks.md
     version: 1.0.0
     upstream: lld
-    derived_from_version: 1.0.3
+    derived_from_version: 1.0.5

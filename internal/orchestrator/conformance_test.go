@@ -10,6 +10,7 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/internal/agent"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/llm"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/safety"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/tool"
@@ -332,5 +333,68 @@ func TestBrokenTopologyFailsTheContract(t *testing.T) {
 	}
 	if !empty.Avoid.Empty() {
 		t.Fatal("an empty description reported a non-empty Avoid")
+	}
+}
+
+// TestAttributionUnderConcurrentTopology is feature 005's NFR-006, checked
+// where it matters: `supervisor` and `debate` run roles in parallel, and an
+// accounting bug there would lose or misattribute a call in exactly the runs
+// whose cost an operator most wants to compare.
+func TestAttributionUnderConcurrentTopology(t *testing.T) {
+	for _, g := range registeredGoverned() {
+		if !g.concurrent {
+			continue
+		}
+		t.Run(g.name, func(t *testing.T) {
+			o, err := orchestrator.Open(g.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := newState(t)
+			rec := &stepRecorder{}
+			st.Sink = rec
+
+			router, err := llm.NewRouter(config.LLMConfig{
+				Provider: "mock", Model: "mock-1",
+				Pricing: map[string]config.ModelPrice{
+					"mock-1": {InputPerMTok: 3, OutputPerMTok: 15},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = router.Close() }()
+			st.Router = router
+			st.Provider = router.Default().Provider
+
+			if err := o.Run(context.Background(), st); err != nil {
+				t.Fatal(err)
+			}
+
+			calls, _ := router.Ledger().Totals()
+			byRole := router.Ledger().ByRole()
+			if calls == 0 || len(byRole) == 0 {
+				t.Fatal("a run that used the model recorded no accounting")
+			}
+
+			var sum int
+			var usd float64
+			for _, u := range byRole {
+				sum += u.Calls
+				usd += u.Cost.USD
+				if u.Role == "(unattributed)" {
+					t.Errorf("a call made under a concurrent topology lost its role")
+				}
+			}
+			if sum != calls {
+				t.Errorf("per-role calls sum to %d, the total says %d", sum, calls)
+			}
+			if total := router.Ledger().Cost(); total.USD < usd-1e-9 || total.USD > usd+1e-9 {
+				t.Errorf("per-role cost sums to %v, the total says %v", usd, total.USD)
+			}
+			if !router.Ledger().Cost().Known {
+				t.Error("every model was priced, so the total must be known")
+			}
+		})
 	}
 }

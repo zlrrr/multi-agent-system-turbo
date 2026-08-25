@@ -14,7 +14,7 @@ A task is `done` only when its test passes (Art. VI.2).
 |---|---|---|---|---|---|
 | T001 | Go module, `Makefile`, `.golangci.yml`, `internal/version` | — | `make build` produces `mas`; `mas version` prints build info | — | done |
 | T002 | `pkg/errs`: registry, `Error`, lookup, bilingual definitions | FR-017 | `TestRegistryUnique`, `TestAllCodesRegistered`, `TestBilingualComplete`, `TestCodeOfThroughWrap` | T001 | done |
-| T003 | `internal/core`: domain model + invariants + JSON round-trip | FR-011, FR-012 | `TestReportRoundTrip`, `TestInvariants`, `TestNoUpwardImports` | T002 | done |
+| T003 | `internal/core`: domain model + invariants + JSON round-trip | FR-011, FR-012 | `TestReportRoundTrip`, `TestValidateRejectsInvariantBreaches`, `TestNoUpwardImports` | T002 | done |
 | T004 | `internal/config`: model, load/merge precedence, `Secret`, validation | FR-001, FR-016 | `TestPrecedence`, `TestValidateCodes`, `TestSecretNeverSerialises`, `TestResolveRefs` | T002 | done |
 | T005 | `internal/safety`: `Redactor` | FR-016 | `TestRedactPatterns`, `TestRedactNestedAny` | T004 | done |
 | T006 | `internal/safety`: `Guard` — six checks, deny-by-default | FR-006, CON-001, CON-002 | `TestGuardAdversarial` (≥30 hostile inputs), `TestGuardCannotBeWidened` | T005 | done |
@@ -28,8 +28,8 @@ A task is `done` only when its test passes (Art. VI.2).
 | T010 | `internal/tool`: `Tool`, `Schema`, `Registry`, guarded `Invoker` | FR-006 | `TestInvokerValidatesArgs`, `TestGuardRefusalBecomesGap`, `TestTimeoutBecomesCeilingCode` | T006 | done |
 | T011 | Structural safety tests: `TestNoUnguardedIO`, no `sh -c` in tree | NFR-003 | both tests green | T010 | done |
 | T012 | `collector/promql` client + 3 tools [P] | FR-003, NFR-004 | `TestInstant`, `TestRange`, `TestSeries`, `TestAuthHeaders`, `TestTruncation`, `TestErrorMapping` | T010 | done |
-| T013 | `collector/loki` client + 2 tools [P] | FR-004, NFR-004 | `TestQuery`, `TestLimit`, `TestLabels`, `TestErrorMapping` | T010 | done |
-| T014 | `envadapter/kube` read-only REST client + 5 tools [P] | FR-005 | `TestListPods`, `TestPodLogs`, `TestEvents`, `TestNodes`, `TestAuthModes`, `TestKubeClientHasNoMutatingMethods` | T010 | done |
+| T013 | `collector/loki` client + 2 tools [P] | FR-004, NFR-004 | `TestQuery`, `TestLimitIsEnforcedAndCapped`, `TestLabels`, `TestErrorMapping` | T010 | done |
+| T014 | `envadapter/kube` read-only REST client + 5 tools [P] | FR-005 | `TestListPods`, `TestPodLogs`, `TestEvents`, `TestNodes`, `TestAuthModes`, `TestClientHasNoMutatingMethods` | T010 | done |
 | T015 | `envadapter/local` host inspection + 4 tools [P] | FR-021 | `TestProcesses`, `TestPorts`, `TestInspectAllowListed`, `TestInspectRefusesMutating` | T010 | done |
 | T016 | `internal/source` fetch with network→local fallback + search + 2 tools | FR-022, FR-023 | `TestFallbackOnUnreachable`, `TestNoMirrorGap`, `TestCacheHitSkipsNetwork`, `TestSearchFixture` | T010 | done |
 | **G-B** | **Gate B** | | `go test ./internal/tool/... ./internal/collector/... ./internal/envadapter/... ./internal/source/...` green | | done |
@@ -50,12 +50,12 @@ A task is `done` only when its test passes (Art. VI.2).
 |---|---|---|---|---|---|
 | T030 | `internal/llm`: types, `Provider`, registry, budget accounting | FR-010, FR-019 | `TestRegistryOpen`, `TestUnknownProviderCoded` | T004 | done |
 | T031 | `llm/mock` scripted deterministic provider | Art. VI.3, NFR-006, NFR-010 | `TestMockDeterminism`, `TestMockToolSequence` | T030 | done |
-| T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`, `TestAnthropicErrorMapping`, `TestAPIKeyRedactedInErrors` | T030 | done |
-| T033 | `llm/openai` (OpenAI-compatible) [P] | FR-010 | `TestOpenAIToolRoundTrip`, `TestBaseURLOverride`, `TestOpenAIErrorMapping` | T030 | done |
+| T032 | `llm/anthropic` [P] | FR-010 | `TestCompleteTranslatesTextAndUsage`, `TestCompleteTranslatesToolCalls`, `TestToolResultsBecomeUserBlocksAndMerge`, `TestStopReasonsAreTranslated`, `TestErrorsCarryTheRightCode`, `TestAPIKeyIsNeverStoredInPlaintext` | T030 | done |
+| T033 | `llm/openai` (OpenAI-compatible) [P] | FR-010 | `TestCompleteTranslatesTextAndUsage`, `TestCompleteTranslatesToolCalls`, `TestToolCallsWithoutFinishReasonStillStop`, `TestEmptyToolArgumentsAreAnEmptyObject`, `TestNoKeySendsNoAuthorizationHeader`, `TestErrorsCarryTheRightCode` | T030 | done |
 | T034 | `internal/agent`: `State`, budgets, `toolLoop`, prompt templates | FR-009, FR-019 | `TestBudgetEnforced`, `TestInvalidToolCallRepairThenGap`, `TestFabricatedCitationsAreDroppedAndRecorded`, `TestRealCitationsSurvive` | T031, T010 | done |
 | T035 | Roles: planner, investigator, correlator, critic, reporter | G7.1 | one behavioural test per role against a scripted mock | T034 | done |
-| T036 | `internal/orchestrator`: interface, registry, `single` | FR-009 | `TestSingleProducesReport`, `TestRegistryRejectsDuplicate` | T035 | done |
-| T037 | `orchestrator/supervisor` with concurrent investigators | FR-009 | `TestSupervisorProducesReport`, `-race` clean | T036 | done |
+| T036 | `internal/orchestrator`: interface, registry, `single` | FR-009 | `TestSingleProducesReportMaterial`, `TestRegistryRejectsDuplicate` | T035 | done |
+| T037 | `orchestrator/supervisor` with concurrent investigators | FR-009 | `TestSupervisorProducesReportMaterial`, `-race` clean | T036 | done |
 | **G-D** | **Gate D** | | `go test -race ./internal/llm/... ./internal/agent/... ./internal/orchestrator/...` green | | done |
 
 ## Phase E — Output & persistence
@@ -63,7 +63,7 @@ A task is `done` only when its test passes (Art. VI.2).
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
 | T040 | `internal/report`: Markdown (en/zh) + JSON renderers | FR-011 | golden-file tests for all four outputs | T003 | done |
-| T041 | `internal/store`: `RunStore`, `fs`, `memory` | FR-012 | `TestFSRoundTrip`, `TestAppendOnly`, `TestCorruptDetected`, `TestList` | T003 | done |
+| T041 | `internal/store`: `RunStore`, `fs`, `memory` | FR-012 | `TestRoundTrip`, `TestAppendOnlyOrdering`, `TestCorruptDetected`, `TestListNewestFirst` | T003 | done |
 | T042 | `internal/service`: admission, two-phase pipeline, short-circuit, degradation, accounting | FR-001, FR-002, FR-008, FR-013, FR-019, NFR-001 | `TestAdmissionCodes`, `TestShortCircuit`, `TestAllSourcesDownStillCompletes`, `TestEndToEndUnder5s`, `TestDeterminism` | T023, T037, T041 | done |
 | T043 | Replay | FR-012 | `TestReplayWithoutNetwork` | T042 | done |
 | **G-E** | **Gate E** | | `go test ./internal/report/... ./internal/store/... ./internal/service/...` green | | done |
@@ -100,6 +100,19 @@ A task is `done` only when its test passes (Art. VI.2).
 | G-E | T040–T043 | `make test-output` |
 | G-F | T050–T052 | `make test-surfaces` |
 | G-G | T060–T065 | `make ci && make docker && make demo` |
+
+## Correction
+
+T032 and T033 were marked `done` while the tests they declared —
+`TestAnthropicToolRoundTrip`, `TestOpenAIToolRoundTrip` and the rest — did not
+exist. Both packages were at 0% coverage. The task table named checkpoints that
+were never met, and nothing caught it: `sddctl verify` checks that a requirement
+is claimed by a task, not that a task's declared tests exist.
+
+The tests exist now, and the rows above name what is actually there. The gap is
+recorded rather than quietly patched, because a checklist that can be marked
+done without its checks is worth less than no checklist, and the next person to
+mark a row `done` should know that happened once.
 
 ## Change Log
 

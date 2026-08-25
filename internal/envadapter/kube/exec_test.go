@@ -751,3 +751,30 @@ func TestExecStepRecordsCommandPodAndExit(t *testing.T) {
 type stepCollector struct{ steps []core.Step }
 
 func (c *stepCollector) AppendStep(_ context.Context, s core.Step) { c.steps = append(c.steps, s) }
+
+// TestWebSocketRejectsUnverifiedAccept is the handshake check that stops a
+// silent failure mode: a proxy that never understood the upgrade can return a
+// plausible 101, after which the client reads its body as frames and fails much
+// later with something that looks like a protocol bug in Kubernetes.
+//
+// Verifying Sec-WebSocket-Accept is what turns that into an immediate, coded
+// refusal naming the connection.
+func TestWebSocketRejectsUnverifiedAccept(t *testing.T) {
+	s := newWSServer(t, successStatus())
+	s.badAccept = true
+
+	_, err := run(t, s, ExecRequest{})
+	if code := errs.CodeOf(err); code != "MAS-4212" {
+		t.Fatalf("got %v (%s), want MAS-4212", err, code)
+	}
+	if !strings.Contains(err.Error(), "accept value") {
+		t.Errorf("the error does not say the handshake failed to verify: %v", err)
+	}
+
+	// A correct accept value must still be admitted, or the check is just a
+	// refusal of everything.
+	ok := newWSServer(t, stdout("fine"), successStatus())
+	if _, err := run(t, ok, ExecRequest{}); err != nil {
+		t.Errorf("a correctly verified handshake was refused: %v", err)
+	}
+}

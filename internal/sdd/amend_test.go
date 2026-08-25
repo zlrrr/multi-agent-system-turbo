@@ -70,3 +70,70 @@ func TestAmendPreservesReviewerNotes(t *testing.T) {
 		t.Errorf("a null upstream was rewritten as an empty string:\n%s", got)
 	}
 }
+
+// TestVerifyRejectsADeclaredTestThatDoesNotExist pins the check that found the
+// gap it exists for. Feature 001's task table named six provider tests that had
+// never been written, and both packages sat at 0% coverage — a checklist that
+// can be ticked without its checks is worth less than no checklist.
+func TestVerifyRejectsADeclaredTestThatDoesNotExist(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "specs", "001-sample")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("spec.md", "# Spec\n\n> **Version**: 1.0.0\n\n| ID | Requirement |\n|---|---|\n| FR-001 | do it |\n")
+	write("tasks.md", "# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test |\n|---|---|---|---|\n"+
+		"| T001 | build it | FR-001 | `TestThatWasNeverWritten` |\n")
+
+	rep, err := Verify(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range rep.Findings {
+		if f.Check == "tests" && strings.Contains(f.Message, "TestThatWasNeverWritten") {
+			found = true
+			if !f.Fatal {
+				t.Error("a task declaring a test that does not exist must fail the build")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the missing test was not reported: %+v", rep.Findings)
+	}
+}
+
+// TestVerifyAcceptsProseCheckpoints: not every checkpoint is a test name, and
+// flagging "smoke test per subcommand" or "`make ci` green" would push authors
+// towards naming nothing at all.
+func TestVerifyAcceptsProseCheckpoints(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "specs", "001-sample")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"),
+		[]byte("# Spec\n\n> **Version**: 1.0.0\n\n| ID | Requirement |\n|---|---|\n| FR-001 | do it |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tasks.md"),
+		[]byte("# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test |\n|---|---|---|---|\n"+
+			"| T001 | build it | FR-001 | smoke test per subcommand; `make ci` green |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Verify(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rep.Findings {
+		if f.Check == "tests" {
+			t.Errorf("a prose checkpoint was reported as a missing test: %s", f.Message)
+		}
+	}
+}

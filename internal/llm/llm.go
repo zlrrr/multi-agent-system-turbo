@@ -198,7 +198,11 @@ func (l *Ledger) record(agent, provider, model string, u Usage, elapsed time.Dur
 	}
 	entry, ok := l.byRole[role]
 	if !ok {
-		entry = &core.RoleUsage{Role: role, Provider: provider, Model: model}
+		// Cost starts at a *known* zero, not the zero value. Cost.Add treats
+		// Known as a conjunction, so an entry starting at Cost{} would make its
+		// own first priced call come out unknown — the identity element for Add
+		// is a measured zero, not an unmeasured one.
+		entry = &core.RoleUsage{Role: role, Provider: provider, Model: model, Cost: core.KnownCost(0)}
 		l.byRole[role] = entry
 	}
 	entry.Calls++

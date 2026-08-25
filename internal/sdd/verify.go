@@ -101,7 +101,104 @@ func Verify(root string) (*Report, error) {
 	if err := checkCoverage(root, r); err != nil {
 		return nil, err
 	}
+	if err := checkDeclaredTests(root, r); err != nil {
+		return nil, err
+	}
 	return r, nil
+}
+
+// declaredTest matches a test name a task's checkpoint column names, e.g.
+// `TestPlaybookHappyPath`. Only backtick-quoted identifiers beginning with Test
+// are checked: a checkpoint may legitimately be prose ("smoke test per
+// subcommand") or a command ("`make ci` green").
+var declaredTest = regexp.MustCompile("`(Test[A-Za-z0-9_]+)`")
+
+// goTestFunc matches a test function's definition.
+var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
+
+// checkDeclaredTests enforces Article VI.1 mechanically: a task that names its
+// test must have that test.
+//
+// This check exists because it was needed. T032 and T033 of feature 001 were
+// marked done while the tests they declared did not exist and their packages
+// were at 0% coverage — the two providers a real operator runs were the least
+// verified code in the repository. Nothing caught it, because coverage checking
+// asks whether a requirement is claimed by a task, not whether a task's claim
+// is true. A checklist that can be ticked without its checks is worth less than
+// no checklist.
+func checkDeclaredTests(root string, r *Report) error {
+	existing, err := goTestNames(root)
+	if err != nil {
+		return err
+	}
+
+	specs := filepath.Join(root, "specs")
+	entries, err := os.ReadDir(specs)
+	if err != nil {
+		return nil //nolint:nilerr // no specs directory is not this check's business
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		rel := "specs/" + e.Name() + "/tasks.md"
+		body, err := os.ReadFile(filepath.Join(specs, e.Name(), "tasks.md")) //nolint:gosec // repository path
+		if err != nil {
+			continue
+		}
+		var missing []string
+		seen := map[string]bool{}
+		for _, m := range declaredTest.FindAllSubmatch(body, -1) {
+			name := string(m[1])
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			r.Checked["tests"]++
+			if !existing[name] {
+				missing = append(missing, name)
+			}
+		}
+		if len(missing) > 0 {
+			sort.Strings(missing)
+			r.Findings = append(r.Findings, Finding{
+				Check: "tests", Path: rel, Fatal: true,
+				Message: "declares test(s) that do not exist: " + strings.Join(missing, ", ") +
+					" (Constitution Art. VI.1: a task is done only when its test passes, " +
+					"which requires the test to be written)",
+			})
+		}
+	}
+	return nil
+}
+
+// goTestNames collects every test function defined in the repository.
+func goTestNames(root string) (map[string]bool, error) {
+	out := map[string]bool{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // an unreadable subtree is not a finding here
+		}
+		if info.IsDir() {
+			switch info.Name() {
+			case ".git", "bin", "dist", "vendor", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, rerr := os.ReadFile(path) //nolint:gosec // repository path
+		if rerr != nil {
+			return nil //nolint:nilerr // skip what cannot be read
+		}
+		for _, m := range goTestFunc.FindAllSubmatch(body, -1) {
+			out[string(m[1])] = true
+		}
+		return nil
+	})
+	return out, err
 }
 
 // checkParity enforces Article III: every document exists in both languages.

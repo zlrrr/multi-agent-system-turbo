@@ -212,3 +212,96 @@ func renderRoles(us []core.RoleUsage) string {
 	}
 	return strings.Join(parts, ",")
 }
+
+// TestAttributionSumsToTheTotal is the property that keeps a breakdown honest.
+// A per-role table that does not add up to the figure above it is worse than no
+// table: the reader cannot tell which number to believe, and both look
+// authoritative.
+func TestAttributionSumsToTheTotal(t *testing.T) {
+	p, _ := llm.Open(config.LLMConfig{Provider: "mock"})
+	c := llm.NewCounting(p, pricing())
+
+	for _, role := range []string{"planner", "investigator", "investigator", "critic", "reporter"} {
+		if _, err := c.Complete(context.Background(), llm.Request{
+			Model: "strong-model", Agent: role,
+			Messages: []llm.Message{{Role: llm.RoleUser, Content: "role: " + role}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var calls, prompt, completion int
+	var usd float64
+	for _, u := range c.ByRole() {
+		calls += u.Calls
+		prompt += u.PromptTokens
+		completion += u.CompletionTokens
+		usd += u.Cost.USD
+	}
+	totalCalls, total := c.Totals()
+	if calls != totalCalls {
+		t.Errorf("per-role calls sum to %d, the total says %d", calls, totalCalls)
+	}
+	if prompt != total.PromptTokens {
+		t.Errorf("per-role prompt tokens sum to %d, the total says %d", prompt, total.PromptTokens)
+	}
+	if completion != total.CompletionTokens {
+		t.Errorf("per-role completion tokens sum to %d, the total says %d", completion, total.CompletionTokens)
+	}
+	if got := c.Cost(); got.USD < usd-1e-9 || got.USD > usd+1e-9 {
+		t.Errorf("per-role cost sums to %v, the total says %v", usd, got.USD)
+	}
+}
+
+// TestPartiallyPricedRunIsExplicit is FR-009. Suppressing the figure would
+// discard real information; showing it bare would understate the run. The
+// report needs both halves, so the ledger has to keep both.
+func TestPartiallyPricedRunIsExplicit(t *testing.T) {
+	ledger := llm.NewLedger()
+	priced, _ := llm.Open(config.LLMConfig{Provider: "mock"})
+	unpriced, _ := llm.Open(config.LLMConfig{Provider: "mock"})
+
+	pricedSide := llm.NewCountingOn(priced, pricing(), ledger)
+	unpricedSide := llm.NewCountingOn(unpriced, llm.Pricing{}, ledger)
+
+	if _, err := pricedSide.Complete(context.Background(), llm.Request{
+		Model: "strong-model", Agent: "correlator",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "role: correlator"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unpricedSide.Complete(context.Background(), llm.Request{
+		Model: "strong-model", Agent: "investigator",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "role: investigator"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cost := ledger.Cost()
+	if cost.Known {
+		t.Error("a partly priced run claimed to know its total")
+	}
+	if !cost.Partial() {
+		t.Errorf("cost = %+v; the priced part must survive so the report can state it", cost)
+	}
+	if cost.USD <= 0 {
+		t.Errorf("USD = %v; the priced call cost something", cost.USD)
+	}
+	if len(cost.Unpriced) == 0 {
+		t.Error("the run cannot name what it failed to price")
+	}
+	if !strings.Contains(cost.String(), "not priced") {
+		t.Errorf("rendered as %q, which does not admit the missing part", cost.String())
+	}
+
+	// The role that was priced must still show a known cost of its own: the
+	// unknown belongs to the run, not to every line of the breakdown.
+	for _, u := range ledger.ByRole() {
+		if u.Role == "correlator" && !u.Cost.Known {
+			t.Error("the priced role's own cost was marked unknown")
+		}
+		if u.Role == "investigator" && u.Cost.Known {
+			t.Error("the unpriced role's cost was marked known")
+		}
+	}
+}

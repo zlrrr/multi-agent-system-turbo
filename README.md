@@ -135,7 +135,7 @@ and knowledge-pack authoring.
 make build          # bin/mas and bin/sddctl
 make test           # the full suite; no test needs a network
 make ci             # what CI enforces: fmt, vet, lint, race tests, SDD checks, build
-make sdd-verify     # bilingual parity, cascade freshness, requirement coverage
+make sdd-verify     # parity, cascade freshness, requirement coverage, declared tests
 make docker         # container image
 ```
 
@@ -144,7 +144,9 @@ high-level design → low-level design → tasks → code — lives in
 [`specs/001-mvp-core/`](./specs/001-mvp-core/), and the rules it follows are in
 [`.specify/memory/constitution.md`](./.specify/memory/constitution.md). CI
 enforces them: every document exists in English and Chinese, no artifact may be
-derived from a stale upstream, and every requirement must be claimed by a task.
+derived from a stale upstream, every requirement must be claimed by a task, and
+every test a task names must actually exist — that last check was added after it
+found six task rows marked done whose tests had never been written.
 
 ## Licence
 

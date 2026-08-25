@@ -121,7 +121,7 @@ done
 make build          # 产出 bin/mas 与 bin/sddctl
 make test           # 完整测试套件；任何测试都不需要网络
 make ci             # CI 强制的全部内容：fmt、vet、lint、race 测试、SDD 校验、构建
-make sdd-verify     # 双语对等、级联新鲜度、需求覆盖
+make sdd-verify     # 双语对等、级联新鲜度、需求覆盖、所声明的测试
 make docker         # 容器镜像
 ```
 
@@ -129,7 +129,8 @@ make docker         # 容器镜像
 任务 → 代码 —— 位于 [`specs/001-mvp-core/`](./specs/001-mvp-core/)，其遵循的规则位于
 [`.specify/memory/constitution.zh.md`](./.specify/memory/constitution.zh.md)。CI 会强制执行
 这些规则：每份文档都必须中英文俱全，任何产出物都不得基于陈旧的上游派生，每条需求都必须
-被某个任务认领。
+被某个任务认领，且任务声明的每一个测试都必须真实存在 ——
+最后这项检查是在发现"六行任务被标记为完成、而其测试从未写过"之后加上的。
 
 ## 许可证
 

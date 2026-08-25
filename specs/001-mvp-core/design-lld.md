@@ -1,6 +1,6 @@
 # Low-Level Design (LLD): MVP Core
 
-> **Feature ID**: `001-mvp-core` · **Version**: 1.0.3 · **Status**: approved
+> **Feature ID**: `001-mvp-core` · **Version**: 1.0.5 · **Status**: approved
 > **Bilingual pair**: [`design-lld.zh.md`](./design-lld.zh.md) · **Upstream**: [`design-hld.md`](./design-hld.md) v1.0.0 · **Downstream**: [`tasks.md`](./tasks.md), code
 
 Module path: `github.com/zlrrr/multi-agent-system-turbo`
@@ -631,6 +631,33 @@ the target, pack summary, prior findings and evidence digests — never with raw
   enforcement; invalid tool call ⇒ bounded repair then gap; hypotheses always carry evidence
   IDs (structural quality assertion for RSK-007).
 
+**Amendment 1.0.5 — `sddctl verify` now checks that declared tests exist.**
+The gap above was not found by the verifier, which is the point: coverage
+checking asks whether a requirement is claimed by a task, never whether the
+task's claim is true. `verify` gained a `tests` check that reads every
+backtick-quoted `TestXxx` in a task table and fails the build when no test
+function of that name exists anywhere in the repository. Prose checkpoints
+("smoke test per subcommand") and commands ("`make ci` green") are untouched,
+because flagging them would push authors towards naming nothing at all.
+
+Running it for the first time found thirteen more phantom names across three
+features, including two written the same day. Eight were renames — the test
+existed under a better name and the table had gone stale — one
+(`TestRegistryRejectsDuplicate`) was genuinely missing and is now written, and
+four were properties covered inside other tests that now have their own.
+
+**Amendment 1.0.4 — the shipped providers were untested.** `internal/llm/mock`
+was thoroughly tested and `internal/llm/anthropic` and `internal/llm/openai`
+were at 0% coverage: the two providers a real operator runs were the least
+verified code in the repository, while the one only tests use was the most.
+Nothing failed as a result — which is the point. Request and response
+translation, tool-call encoding, stop-reason mapping, usage extraction and
+error-code mapping were all unverified, and a defect in any of them would have
+surfaced first in production. Both are now exercised against `httptest` servers
+speaking the real API shapes, including the compatible-but-not-identical
+behaviours a local OpenAI-compatible server exhibits: tool calls returned with
+`finish_reason: "stop"`, empty argument strings, and no API key at all.
+
 **Amendment 1.0.3 — citations are resolved, not reprinted.** A hypothesis's
 `Supporting` and `Contradicting` lists came straight from the model. A model that
 cites `ev-7` in a run that collected no evidence is guessing, and a report that
@@ -803,6 +830,8 @@ Allocation blocks are HLD §7.1; specific codes are listed per package in §2 ab
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.0.5 | 2026-08-25 | §2.17: `sddctl verify` gains a `tests` check — a task that names its test must have it | Found 13 further phantom test names; one missing test written, eight stale names corrected, four properties given their own tests |
+| 1.0.4 | 2026-08-25 | §2.13: the Anthropic and OpenAI-compatible providers were shipped with no tests at all; both are now covered against servers speaking the real API shapes | `internal/llm/anthropic` 0%→79%, `internal/llm/openai` 0%→80%; no behaviour changed |
 | 1.0.3 | 2026-08-24 | §2.14: hypothesis citations are resolved against what the run collected, with `MAS-2010` for the rest; §2.16: `mas topologies`/`mas errcodes` honour the configured language, and CLI wrapping measures terminal columns so Chinese wraps at the intended width | `internal/agent`, `internal/cli` fixed with regression tests; one error code added |
 | 1.0.2 | 2026-08-24 | §2.12: two silent correctness corrections in the rule engine — regex literals are no longer read as slot references, and a metric that returned no series can no longer be reported as a passed check; `MAS-5015` added | `internal/rules` fixed with regression tests; `pkg/errs` gains one code; error-code references regenerated |
 | 1.0.1 | 2026-08-23 | §2.9: `exec` credential plugins recorded as deliberately unsupported, with the trust argument and the operator-facing alternative | `tasks.md` re-reviewed, unchanged; `plan.md` RSK-001 mitigation narrowed |
