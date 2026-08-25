@@ -13,6 +13,7 @@ import (
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/store"
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
@@ -334,8 +335,12 @@ func TestAdmissionCodes(t *testing.T) {
 		"no symptom":       {core.DiagnoseRequest{Target: "redis-prod"}, "MAS-1007"},
 		"unknown target":   {core.DiagnoseRequest{Target: "ghost", Symptom: "x"}, "MAS-1005"},
 		"bad mode":         {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Mode: "hybrid"}, "MAS-1011"},
-		"unknown topology": {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Topology: "debate"}, "MAS-3001"},
-		"bad language":     {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Language: "fr"}, "MAS-1007"},
+		"unknown topology": {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Topology: "no-such-topology"}, "MAS-3001"},
+		// A near-miss on a real name must still be refused: "debate " with a
+		// stray space, or a plausible-looking alias, are the ways this fails in
+		// practice.
+		"near-miss topology": {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Topology: "debates"}, "MAS-3001"},
+		"bad language":       {core.DiagnoseRequest{Target: "redis-prod", Symptom: "x", Language: "fr"}, "MAS-1007"},
 		"inverted window": {core.DiagnoseRequest{
 			Target: "redis-prod", Symptom: "x",
 			Window: core.Window{From: at, To: at.Add(-time.Hour)},
@@ -618,4 +623,67 @@ func mustFS(t *testing.T, dir string) *store.FS {
 		t.Fatal(err)
 	}
 	return fs
+}
+
+// TestEveryRegisteredTopologyIsAdmitted is the other side of MAS-3001 (FR-012):
+// the admission check must accept every topology this build ships, or a
+// registered architecture would be unreachable from the CLI and the API.
+func TestEveryRegisteredTopologyIsAdmitted(t *testing.T) {
+	svc := newService(t, newStubs(t, 0.99, true), nil)
+	for _, name := range orchestrator.Names() {
+		t.Run(name, func(t *testing.T) {
+			_, err := svc.Diagnose(context.Background(), core.DiagnoseRequest{
+				Target: "redis-prod", Symptom: "p99 latency spike with evictions",
+				Topology: name, Mode: core.ModeOffline,
+			})
+			if errs.CodeOf(err) == "MAS-3001" {
+				t.Errorf("topology %q is registered but rejected at admission", name)
+			}
+			if err != nil {
+				t.Errorf("registered topology %q failed: %v", name, err)
+			}
+		})
+	}
+}
+
+// TestRunRecordCarriesTopologyAccounting is FR-011. Comparing topologies means
+// comparing what each one cost, so the record has to name the topology and its
+// usage — otherwise a comparison is a memory of two runs, not a measurement.
+func TestRunRecordCarriesTopologyAccounting(t *testing.T) {
+	svc := newService(t, newStubs(t, 0.99, true), nil)
+	for _, name := range orchestrator.Names() {
+		t.Run(name, func(t *testing.T) {
+			rep, err := svc.Diagnose(context.Background(), core.DiagnoseRequest{
+				Target: "redis-prod", Symptom: "p99 latency spike with evictions",
+				Topology: name, Mode: core.ModeOffline,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rep.Topology != name {
+				t.Errorf("report topology = %q, want %q", rep.Topology, name)
+			}
+			if rep.Usage.WallMillis <= 0 {
+				t.Error("the report records no wall-clock cost")
+			}
+
+			rec, err := svc.Run(context.Background(), rep.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rec.Request.Topology != name {
+				t.Errorf("run record topology = %q, want %q", rec.Request.Topology, name)
+			}
+			if rec.Summarise().Topology != name {
+				t.Errorf("run summary topology = %q, want %q", rec.Summarise().Topology, name)
+			}
+			// Every model exchange must be attributable, which is what makes
+			// the cost assignable to a role rather than only to the run.
+			for _, s := range rec.Steps {
+				if s.Kind == core.StepLLMCall && strings.TrimSpace(s.Actor) == "" {
+					t.Errorf("a recorded model exchange names no role: %+v", s)
+				}
+			}
+		})
+	}
 }

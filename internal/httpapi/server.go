@@ -273,9 +273,13 @@ func (s *Server) handleTopologies(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
 		return
 	}
+	// Descriptions render in the configured operator language; details carry both,
+	// so an integration can present either without a second request.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"topologies": orchestrator.Names(), "descriptions": orchestrator.Descriptions(),
-		"default": s.svc.Config().Run.DefaultTopology,
+		"topologies":   orchestrator.Names(),
+		"descriptions": orchestrator.Descriptions(s.svc.Config().Run.Language),
+		"details":      orchestrator.Details(),
+		"default":      s.svc.Config().Run.DefaultTopology,
 	})
 }
 

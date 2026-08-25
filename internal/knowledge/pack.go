@@ -21,35 +21,10 @@ const APIVersion = "mas.turbo/v1"
 // Kind is the pack document kind.
 const Kind = "KnowledgePack"
 
-// Text is a bilingual string. Constitution Art. III requires both languages to
-// be present in every pack that ships with this project.
-type Text struct {
-	EN string `yaml:"en" json:"en"`
-	ZH string `yaml:"zh" json:"zh"`
-}
-
-// In returns the text in the requested language, falling back to English so a
-// partially translated third-party pack still renders.
-func (t Text) In(lang string) string {
-	if lang == "zh" && strings.TrimSpace(t.ZH) != "" {
-		return t.ZH
-	}
-	if strings.TrimSpace(t.EN) != "" {
-		return t.EN
-	}
-	return t.ZH
-}
-
-// Empty reports whether both languages are blank.
-func (t Text) Empty() bool { return strings.TrimSpace(t.EN) == "" && strings.TrimSpace(t.ZH) == "" }
-
-// Complete reports whether both languages are present. Pack validation requires
-// it (Constitution Art. III): expertise that only one audience can read is only
-// half-delivered. Rendering still falls back through In, so a partially
-// translated third-party pack degrades rather than breaking.
-func (t Text) Complete() bool {
-	return strings.TrimSpace(t.EN) != "" && strings.TrimSpace(t.ZH) != ""
-}
+// Text is a bilingual string. It is core.Text: knowledge packs and the topology
+// registry need the same thing, so they share one type rather than two that
+// drift. The alias keeps every pack, every YAML key and every caller unchanged.
+type Text = core.Text
 
 // Metadata identifies a pack and the versions it applies to.
 type Metadata struct {

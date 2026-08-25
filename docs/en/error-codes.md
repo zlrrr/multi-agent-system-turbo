@@ -35,6 +35,7 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-2007` | warn | `TokenBudgetExceeded` | token budget exhausted after %d tokens | Raise run.budget.max_tokens, or accept the truncated analysis. |
 | `MAS-2008` | error | `ProviderResponseMalformed` | LLM provider %q returned a malformed response: %s | Confirm base_url points at a compatible API; enable debug logging to inspect the body. |
 | `MAS-2009` | error | `MockScriptExhausted` | mock provider script has no reply for turn %d | Extend the mock script; this only occurs in tests and demos. |
+| `MAS-2010` | warn | `CitationUnresolved` | the model cited %d reference(s) that this run did not collect: %s | The unresolved references were dropped from the report. A model that cites evidence it was not given is guessing; check the transcript for the role that produced them. |
 
 ## Agents and orchestration
 

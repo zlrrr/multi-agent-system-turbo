@@ -108,15 +108,18 @@ func TestRegistryListsBothTopologies(t *testing.T) {
 			t.Errorf("topology %s is not registered", want)
 		}
 	}
-	for name, desc := range orchestrator.Descriptions() {
-		if strings.TrimSpace(desc) == "" {
-			t.Errorf("topology %s has no description; it appears in `mas topologies`", name)
+	for _, lang := range []string{"en", "zh"} {
+		for name, desc := range orchestrator.Descriptions(lang) {
+			if strings.TrimSpace(desc) == "" {
+				t.Errorf("topology %s has no %s description; it appears in `mas topologies`", name, lang)
+			}
 		}
 	}
 }
 
 func TestUnknownTopologyIsCoded(t *testing.T) {
-	if _, err := orchestrator.Open("debate"); errs.CodeOf(err) != "MAS-3001" {
+	// A name no topology will ever claim: the point is the code, not the name.
+	if _, err := orchestrator.Open("no-such-topology"); errs.CodeOf(err) != "MAS-3001" {
 		t.Fatalf("got %v, want MAS-3001", err)
 	}
 }

@@ -92,6 +92,11 @@ var definitions = []Definition{
 		"mock provider script has no reply for turn %d", "mock provider 脚本在第 %d 轮没有可用回复",
 		"Extend the mock script; this only occurs in tests and demos.",
 		"扩展 mock 脚本；该情况仅出现在测试与演示中。"},
+	{"MAS-2010", "CitationUnresolved", SeverityWarn,
+		"the model cited %d reference(s) that this run did not collect: %s",
+		"模型引用了本次运行并未采集到的 %d 条引用：%s",
+		"The unresolved references were dropped from the report. A model that cites evidence it was not given is guessing; check the transcript for the role that produced them.",
+		"这些无法解析的引用已从报告中剔除。模型引用了未曾提供给它的证据，说明它在猜；请在转录中查看是哪个角色产出的。"},
 
 	// ── 3xxx · agents & orchestration ───────────────────────────────────────
 	{"MAS-3001", "TopologyUnknown", SeverityError,

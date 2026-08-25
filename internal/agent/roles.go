@@ -340,3 +340,239 @@ func clamp(v float64) float64 {
 		return v
 	}
 }
+
+// Objective is one unit of work an adaptive topology decides to do next. It
+// names the domain that can answer it and what would be established — never the
+// tool to run, which is the executor's business.
+type Objective struct {
+	Domain    tool.Domain `json:"domain"`
+	Statement string      `json:"statement"`
+}
+
+// Strategist decides the next objectives from what is known so far, and says
+// when nothing further is worth doing.
+//
+// It is a different role from Planner rather than a mode of it. Planner writes
+// one prose plan for the reader and for the investigators' context; this
+// contract is structured, iterative and — decisively — terminating. Overloading
+// Planner with a second contract would have made both harder to reason about
+// and impossible to attribute separately in a transcript.
+type Strategist struct {
+	Round   int      // 0-based; round 0 has learned nothing yet
+	Learned []string // what the executed objectives returned
+
+	objectives []Objective
+	converged  bool
+	reasoning  string
+}
+
+// Role identifies this agent.
+func (*Strategist) Role() Role { return RoleStrategist }
+
+type strategistReply struct {
+	Objectives []struct {
+		Domain    string `json:"domain"`
+		Statement string `json:"statement"`
+	} `json:"objectives"`
+	Done      bool   `json:"done"`
+	Reasoning string `json:"reasoning"`
+}
+
+// Step decides the next objectives. Outcome.Done reports convergence: the
+// strategist judged that nothing further would change the conclusion.
+func (s *Strategist) Step(ctx context.Context, st *State) (Outcome, error) {
+	var b strings.Builder
+	if len(s.Learned) > 0 {
+		b.WriteString("\n\n## What the executed objectives established\n")
+		for _, l := range s.Learned {
+			fmt.Fprintf(&b, "- %s\n", l)
+		}
+	}
+	text, err := runLoop(ctx, st, loopOptions{
+		role:     RoleStrategist,
+		label:    fmt.Sprintf("strategist (round %d)", s.Round+1),
+		system:   systemPreamble + languageInstruction(st.Language),
+		user:     promptContext(st) + b.String() + "\n\n" + strategistInstruction,
+		maxTurns: 1,
+	})
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	var reply strategistReply
+	if !decodeJSON(st, RoleStrategist, text, &reply) {
+		// An unusable reply must stop the loop rather than repeat it: another
+		// round would produce the same unusable reply and spend the budget.
+		s.converged = true
+		return Outcome{Done: true, Message: text}, nil
+	}
+
+	for _, o := range reply.Objectives {
+		domain := tool.Domain(strings.ToLower(strings.TrimSpace(o.Domain)))
+		if !knownDomain(domain) || strings.TrimSpace(o.Statement) == "" {
+			continue
+		}
+		s.objectives = append(s.objectives, Objective{Domain: domain, Statement: strings.TrimSpace(o.Statement)})
+	}
+	s.converged = reply.Done || len(s.objectives) == 0
+
+	if strings.TrimSpace(reply.Reasoning) != "" {
+		s.reasoning = strings.TrimSpace(reply.Reasoning)
+	}
+	return Outcome{Done: s.converged, Message: text}, nil
+}
+
+// Objectives returns what Step decided to pursue.
+func (s *Strategist) Objectives() []Objective { return s.objectives }
+
+// Reasoning returns why, for the note the topology records.
+func (s *Strategist) Reasoning() string { return s.reasoning }
+
+func knownDomain(d tool.Domain) bool {
+	switch d {
+	case tool.DomainMetrics, tool.DomainLogs, tool.DomainCluster, tool.DomainHost, tool.DomainSource:
+		return true
+	default:
+		return false
+	}
+}
+
+// Executor pursues exactly one stated objective with the tools of its domain.
+type Executor struct{ Objective Objective }
+
+// Role identifies this agent.
+func (Executor) Role() Role { return RoleExecutor }
+
+// Label names this executor by the objective it was given.
+func (e Executor) Label() string { return fmt.Sprintf("executor (%s)", e.Objective.Domain) }
+
+// Step pursues the objective and records what it established.
+func (e Executor) Step(ctx context.Context, s *State) (Outcome, error) {
+	names := toolNames(s, e.Objective.Domain)
+	if len(names) == 0 {
+		s.AddGap(core.Gap{
+			Intent: e.Label(), Reason: core.GapNotConfigured,
+			Detail: fmt.Sprintf("objective %q needs %s tools, and this run has none",
+				e.Objective.Statement, e.Objective.Domain),
+			Impact: "the objective was not pursued, so what it would have established is unknown",
+		})
+		// An unanswerable objective is a result the strategist needs.
+		return Outcome{Done: true, Message: fmt.Sprintf(
+			"could not pursue %q: no %s tools in this run", e.Objective.Statement, e.Objective.Domain)}, nil
+	}
+	text, err := runLoop(ctx, s, loopOptions{
+		role:      RoleExecutor,
+		label:     e.Label(),
+		system:    systemPreamble + languageInstruction(s.Language),
+		user:      promptContext(s) + "\n\n" + fmt.Sprintf(executorInstruction, e.Objective.Domain, e.Objective.Statement),
+		toolNames: names,
+		maxTurns:  5,
+	})
+	if err != nil {
+		return Outcome{}, err
+	}
+	if strings.TrimSpace(text) != "" {
+		s.AddNote(fmt.Sprintf("Objective (%s): %s\n%s", e.Objective.Domain, e.Objective.Statement, text))
+	}
+	return Outcome{Done: true, Message: text}, nil
+}
+
+// Advocate argues one position against the alternatives, from shared evidence.
+//
+// It does not choose its position. That is the whole design: a role that picks
+// what to argue produces a second opinion, whereas a role assigned a position it
+// must defend produces the strongest case *for* it — which is what a judge needs
+// in order to compare, rather than merely agree.
+type Advocate struct {
+	Position     core.Hypothesis
+	Alternatives []core.Hypothesis
+	Rank         int // 1-based; fixes note order regardless of scheduling
+}
+
+// Role identifies this agent.
+func (Advocate) Role() Role { return RoleAdvocate }
+
+// Label names this advocate by the position it holds.
+func (a Advocate) Label() string { return fmt.Sprintf("advocate (%s)", a.Position.ID) }
+
+// Step argues the position and records the argument as a note.
+func (a Advocate) Step(ctx context.Context, s *State) (Outcome, error) {
+	var others strings.Builder
+	for _, alt := range a.Alternatives {
+		fmt.Fprintf(&others, "- %s: %s\n", alt.ID, alt.Statement)
+	}
+	if others.Len() == 0 {
+		others.WriteString("- (none)\n")
+	}
+	text, err := runLoop(ctx, s, loopOptions{
+		role:     RoleAdvocate,
+		label:    a.Label(),
+		system:   systemPreamble + languageInstruction(s.Language),
+		user:     promptContext(s) + notesSection(s) + "\n\n" + fmt.Sprintf(advocateInstruction, a.Position.Statement, others.String()),
+		maxTurns: 1,
+	})
+	if err != nil {
+		return Outcome{}, err
+	}
+	if strings.TrimSpace(text) != "" {
+		s.AddNote(fmt.Sprintf("Argument %d for %s:\n%s", a.Rank, a.Position.ID, text))
+	}
+	return Outcome{Done: true, Message: text}, nil
+}
+
+// Judge adjudicates the advocates' arguments against the evidence.
+//
+// It differs from Critic in what it is given, not in what it returns: the critic
+// challenges each hypothesis on its own terms; the judge is handed competing
+// arguments about one body of evidence and must prefer at most one. The reply
+// shape is deliberately the critic's, so the report needs no new concept.
+type Judge struct{}
+
+// Role identifies this agent.
+func (Judge) Role() Role { return RoleJudge }
+
+// Step decides between the argued positions.
+func (Judge) Step(ctx context.Context, s *State) (Outcome, error) {
+	hyps := s.Hypotheses()
+	if len(hyps) == 0 {
+		return Outcome{Done: true, Message: "no positions to judge"}, nil
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Positions\n")
+	for _, h := range hyps {
+		fmt.Fprintf(&b, "- %s (confidence %.2f): %s\n", h.ID, h.Confidence, h.Statement)
+	}
+	text, err := runLoop(ctx, s, loopOptions{
+		role:     RoleJudge,
+		label:    "judge",
+		system:   systemPreamble + languageInstruction(s.Language),
+		user:     promptContext(s) + notesSection(s) + b.String() + "\n\n" + judgeInstruction,
+		maxTurns: 1,
+	})
+	if err != nil {
+		return Outcome{}, err
+	}
+	var reply criticReply
+	if !decodeJSON(s, RoleJudge, text, &reply) {
+		return Outcome{Done: true}, nil
+	}
+	supported := 0
+	for _, a := range reply.Assessments {
+		status := core.HypothesisStatus(strings.ToLower(strings.TrimSpace(a.Status)))
+		switch status {
+		case core.HypothesisSupported:
+			// The judge's contract is that at most one position wins. A model
+			// that supports two has not decided, and recording both as
+			// supported would present indecision as agreement.
+			supported++
+			if supported > 1 {
+				status = core.HypothesisInconclusive
+			}
+		case core.HypothesisRefuted, core.HypothesisInconclusive:
+		default:
+			status = ""
+		}
+		s.UpdateHypothesis(a.ID, status, clamp(a.Confidence), a.Rationale)
+	}
+	return Outcome{Done: true, Message: text}, nil
+}

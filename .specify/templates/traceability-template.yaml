@@ -4,11 +4,19 @@
 # this artifact stale and the build fails until it is re-reviewed and re-stamped.
 feature: NNN-slug
 artifacts:
+  # The goals document is every feature's root upstream. Without this entry an
+  # amendment to the goals could not mark a feature's spec stale, which is the
+  # cascade Article II.2 exists to enforce.
+  - id: goals
+    path: ../../docs/en/project-goals.md
+    version: 0.0.0
+    upstream: null
+    derived_from_version: null
   - id: spec
     path: spec.md
     version: 0.1.0
-    upstream: null
-    derived_from_version: null
+    upstream: goals
+    derived_from_version: 0.0.0
   - id: plan
     path: plan.md
     version: 0.1.0

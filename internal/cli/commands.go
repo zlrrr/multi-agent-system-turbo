@@ -351,13 +351,20 @@ func newTopologiesCmd(e *env) *cobra.Command {
 a different arrangement of agents. Selecting one per run is what makes them
 comparable on identical cases.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			descs := orchestrator.Descriptions()
 			if asJSON {
-				return writeJSON(e.out, descs)
+				// JSON carries both languages: a caller may not be the operator.
+				return writeJSON(e.out, orchestrator.Details())
 			}
-			names := orchestrator.Names()
-			for _, n := range names {
-				fmt.Fprintf(e.out, "%s\n    %s\n\n", n, wrap(descs[n], 92, "    "))
+			descs := orchestrator.Descriptions(e.lang())
+			for _, n := range orchestrator.Names() {
+				fmt.Fprintf(e.out, "%s\n", n)
+				// Each of Summary/Cost/Choose/Avoid is its own line: run
+				// together they read as one paragraph, and the whole point of
+				// the last two is that an operator can find them at a glance.
+				for _, line := range strings.Split(descs[n], "\n") {
+					fmt.Fprintf(e.out, "    %s\n", wrap(line, 92, "      "))
+				}
+				fmt.Fprintln(e.out)
 			}
 			return nil
 		},
@@ -491,7 +498,7 @@ reference documentation.`,
 				all = kept
 			}
 			if lang == "" {
-				lang = e.g.language
+				lang = e.lang()
 			}
 			switch format {
 			case "json":
@@ -629,23 +636,120 @@ func truncate(s string, n int) string {
 }
 
 // wrap re-flows text to a width, indenting continuation lines.
+// wrap breaks text to a display width.
+//
+// Width is measured in terminal columns, not bytes: a CJK character occupies two
+// columns and three bytes, so a byte count wraps Chinese at a third of the
+// intended width. CJK also has no spaces, so a break is allowed between two wide
+// characters — otherwise a Chinese paragraph is one unbreakable word and does
+// not wrap at all. Both matter in a product that ships every string twice.
 func wrap(s string, width int, indent string) string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
+	toks := tokenize(s)
+	if len(toks) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	lineLen := 0
-	for i, word := range words {
-		if lineLen > 0 && lineLen+1+len(word) > width {
+	for _, tk := range toks {
+		gap := 0
+		if tk.spaced && lineLen > 0 {
+			gap = 1
+		}
+		// Chinese typesetting forbids a line that begins with closing
+		// punctuation. Allowing one column of overflow keeps 。 or ）with the
+		// clause it closes, which is what a reader expects.
+		if noBreakBefore(tk.text) {
+			b.WriteString(tk.text)
+			lineLen += tk.width
+			continue
+		}
+		if lineLen > 0 && lineLen+gap+tk.width > width {
 			b.WriteString("\n" + indent)
 			lineLen = 0
-		} else if i > 0 {
+			gap = 0
+		} else if gap == 1 {
 			b.WriteString(" ")
 			lineLen++
 		}
-		b.WriteString(word)
-		lineLen += len(word)
+		b.WriteString(tk.text)
+		lineLen += tk.width
 	}
 	return b.String()
+}
+
+// token is one unbreakable unit: a run of narrow characters, or a single wide
+// one. spaced records whether whitespace preceded it in the source, which is
+// what decides whether a space is reinserted when it does not start a line.
+type token struct {
+	text   string
+	width  int
+	spaced bool
+}
+
+func tokenize(s string) []token {
+	var (
+		out     []token
+		cur     strings.Builder
+		curW    int
+		pending bool // whitespace seen since the last token
+	)
+	flush := func() {
+		if cur.Len() == 0 {
+			return
+		}
+		out = append(out, token{text: cur.String(), width: curW, spaced: pending})
+		cur.Reset()
+		curW = 0
+		pending = false
+	}
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			flush()
+			pending = true
+		case isWide(r):
+			flush()
+			out = append(out, token{text: string(r), width: 2, spaced: pending})
+			pending = false
+		default:
+			cur.WriteRune(r)
+			curW++
+		}
+	}
+	flush()
+	return out
+}
+
+// noBreakBefore reports whether a token may not start a line: CJK closing
+// punctuation belongs to the clause it ends.
+func noBreakBefore(text string) bool {
+	r := []rune(text)
+	if len(r) != 1 {
+		return false
+	}
+	return strings.ContainsRune("。，、；：？！）】》」』〉〕｝”’·…—", r[0])
+}
+
+// isWide reports whether a rune occupies two terminal columns. The ranges cover
+// what this project actually emits — CJK ideographs, kana, Hangul, fullwidth
+// forms and CJK punctuation — rather than the whole East Asian Width table,
+// which would be a dependency for no gain here.
+func isWide(r rune) bool {
+	switch {
+	case r >= 0x1100 && r <= 0x115F, // Hangul Jamo
+		r >= 0x2E80 && r <= 0x303E, // CJK radicals and punctuation
+		r >= 0x3041 && r <= 0x33FF, // kana, Hangul compatibility, CJK compatibility
+		r >= 0x3400 && r <= 0x4DBF, // CJK extension A
+		r >= 0x4E00 && r <= 0x9FFF, // CJK unified ideographs
+		r >= 0xA000 && r <= 0xA4CF, // Yi
+		r >= 0xAC00 && r <= 0xD7A3, // Hangul syllables
+		r >= 0xF900 && r <= 0xFAFF, // CJK compatibility ideographs
+		r >= 0xFE30 && r <= 0xFE6F, // CJK compatibility forms
+		r >= 0xFF00 && r <= 0xFF60, // fullwidth forms
+		r >= 0xFFE0 && r <= 0xFFE6,
+		r >= 0x20000 && r <= 0x3FFFD: // CJK extensions B and beyond
+		return true
+	default:
+		return false
+	}
 }

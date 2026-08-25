@@ -1,6 +1,6 @@
 # Low-Level Design (LLD): MVP Core
 
-> **Feature ID**: `001-mvp-core` · **Version**: 1.0.2 · **Status**: approved
+> **Feature ID**: `001-mvp-core` · **Version**: 1.0.3 · **Status**: approved
 > **Bilingual pair**: [`design-lld.zh.md`](./design-lld.zh.md) · **Upstream**: [`design-hld.md`](./design-hld.md) v1.0.0 · **Downstream**: [`tasks.md`](./tasks.md), code
 
 Module path: `github.com/zlrrr/multi-agent-system-turbo`
@@ -631,6 +631,16 @@ the target, pack summary, prior findings and evidence digests — never with raw
   enforcement; invalid tool call ⇒ bounded repair then gap; hypotheses always carry evidence
   IDs (structural quality assertion for RSK-007).
 
+**Amendment 1.0.3 — citations are resolved, not reprinted.** A hypothesis's
+`Supporting` and `Contradicting` lists came straight from the model. A model that
+cites `ev-7` in a run that collected no evidence is guessing, and a report that
+reprints the citation launders the guess into provenance — which is exactly the
+fabricated-confidence failure RSK-007 names. `State.AddHypothesis` now resolves
+every reference against the evidence this run collected and the deterministic
+findings it was given; unresolved references are dropped and recorded as a
+`MAS-2010` gap that says what the operator loses. Found by feature 003's topology
+conformance contract, which runs every topology with no tools at all.
+
 ### 2.15 `internal/orchestrator` — governs HLD §4.4
 
 ```go
@@ -793,6 +803,7 @@ Allocation blocks are HLD §7.1; specific codes are listed per package in §2 ab
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.0.3 | 2026-08-24 | §2.14: hypothesis citations are resolved against what the run collected, with `MAS-2010` for the rest; §2.16: `mas topologies`/`mas errcodes` honour the configured language, and CLI wrapping measures terminal columns so Chinese wraps at the intended width | `internal/agent`, `internal/cli` fixed with regression tests; one error code added |
 | 1.0.2 | 2026-08-24 | §2.12: two silent correctness corrections in the rule engine — regex literals are no longer read as slot references, and a metric that returned no series can no longer be reported as a passed check; `MAS-5015` added | `internal/rules` fixed with regression tests; `pkg/errs` gains one code; error-code references regenerated |
 | 1.0.1 | 2026-08-23 | §2.9: `exec` credential plugins recorded as deliberately unsupported, with the trust argument and the operator-facing alternative | `tasks.md` re-reviewed, unchanged; `plan.md` RSK-001 mitigation narrowed |
 | 1.0.0 | 2026-08-23 | Initial low-level design | `tasks.md`, code |

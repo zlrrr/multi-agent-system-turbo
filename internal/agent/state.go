@@ -20,6 +20,7 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/internal/knowledge"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/llm"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/tool"
+	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
 
 // Role names a diagnostic specialisation.
@@ -27,6 +28,10 @@ type Role string
 
 const (
 	RolePlanner      Role = "planner"
+	RoleStrategist   Role = "strategist"
+	RoleExecutor     Role = "executor"
+	RoleAdvocate     Role = "advocate"
+	RoleJudge        Role = "judge"
 	RoleInvestigator Role = "investigator"
 	RoleCorrelator   Role = "correlator"
 	RoleCritic       Role = "critic"
@@ -154,7 +159,26 @@ func (s *State) Gaps() []core.Gap {
 }
 
 // AddHypothesis records a candidate explanation, assigning a stable id.
+//
+// Supporting and contradicting references are resolved against what this run
+// actually collected. A model that cites evidence it was never given is
+// guessing, and a report that repeats the citation launders the guess into
+// provenance — so unresolved references are dropped and recorded as a gap
+// rather than printed (MAS-2010).
 func (s *State) AddHypothesis(h core.Hypothesis) string {
+	var unresolved []string
+	h.Supporting, unresolved = s.resolveRefs(h.Supporting, unresolved)
+	h.Contradicting, unresolved = s.resolveRefs(h.Contradicting, unresolved)
+	if len(unresolved) > 0 {
+		s.AddGap(core.Gap{
+			Intent: "hypothesis citations", Reason: core.GapUnavailable,
+			Code:   "MAS-2010",
+			Detail: errs.New("MAS-2010", len(unresolved), strings.Join(unresolved, ", ")).Error(),
+			Impact: "the report shows this hypothesis without those references; " +
+				"its support is weaker than the model claimed",
+		})
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hypSeq++
@@ -166,6 +190,49 @@ func (s *State) AddHypothesis(h core.Hypothesis) string {
 	}
 	s.hypotheses = append(s.hypotheses, h)
 	return h.ID
+}
+
+// resolveRefs keeps the references that name evidence this run collected or a
+// deterministic finding it was given, and returns the rest.
+func (s *State) resolveRefs(refs, unresolved []string) (kept, stillUnresolved []string) {
+	if len(refs) == 0 {
+		return nil, unresolved
+	}
+	known := s.knownRefs()
+	kept = make([]string, 0, len(refs))
+	for _, r := range refs {
+		id := strings.TrimSpace(r)
+		if id == "" {
+			continue
+		}
+		if known[id] {
+			kept = append(kept, id)
+			continue
+		}
+		unresolved = append(unresolved, id)
+	}
+	if len(kept) == 0 {
+		kept = nil
+	}
+	return kept, unresolved
+}
+
+// knownRefs is every identifier a hypothesis may legitimately cite.
+func (s *State) knownRefs() map[string]bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]bool, len(s.evidence)+len(s.Prior))
+	for _, e := range s.evidence {
+		if e.ID != "" {
+			out[e.ID] = true
+		}
+	}
+	for _, f := range s.Prior {
+		if f.ID != "" {
+			out[f.ID] = true
+		}
+	}
+	return out
 }
 
 // Hypotheses returns a copy of the current hypotheses.

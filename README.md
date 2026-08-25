@@ -89,7 +89,7 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 | Cannot mutate a target | One choke point every effect passes through; deny-by-default; no setting disables it. An adversarial suite tries FLUSHALL in every casing, argument injection, `pods/exec`, and pack-supplied commands — none arrive |
 | A missing measurement is never a healthy one | A check whose input failed to collect is *skipped* with a recorded gap, never evaluated as passing |
 | A source being down does not lose the analysis | Every failure becomes a gap with a code and a stated effect on confidence; the run completes |
-| Results are reproducible | Identical input produces an identical report, including under the concurrent topology |
+| Results are reproducible | Identical input produces an identical report, including under the topologies that run roles concurrently |
 | Runs are auditable | Every tool call, model exchange and verdict is persisted with an integrity digest; replay reproduces the report with the network off |
 | Credentials never leak | Redaction at the log handler, not the call site; secrets cannot be printed in any format |
 
@@ -102,7 +102,7 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 | **Environments** | Kubernetes (read-only API); local host |
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |
 | **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock |
-| **Topologies** | `supervisor` (default), `single` (control condition) |
+| **Topologies** | `supervisor` (default), `single` (control condition), `plan-execute` (adaptive), `debate` (adversarial), `blackboard` (data-driven) |
 | **Interfaces** | CLI, HTTP API, container image |
 
 Deliberately not here yet: in-container command execution on Kubernetes, API
@@ -121,8 +121,9 @@ mas doctor
 mas diagnose --target redis-prod --symptom "p99 latency spike" --since 1h
 
 # Compare topologies on the same case
-mas diagnose -t redis-prod -s "latency spike" --topology single -f json -o single.json
-mas diagnose -t redis-prod -s "latency spike" --topology supervisor -f json -o supervisor.json
+for t in single supervisor plan-execute debate blackboard; do
+  mas diagnose -t redis-prod -s "latency spike" --topology "$t" -f json -o "$t.json"
+done
 ```
 
 See the [user manual](./docs/en/user-manual.md) for configuration, RBAC, the API

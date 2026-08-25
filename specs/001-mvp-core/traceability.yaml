@@ -6,7 +6,7 @@ feature: 001-mvp-core
 artifacts:
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.1.1
+    version: 1.1.2
     upstream: null
     derived_from_version: null
   - id: spec
@@ -15,7 +15,7 @@ artifacts:
     path: spec.md
     version: 1.0.0
     upstream: goals
-    derived_from_version: 1.1.1
+    derived_from_version: 1.1.2
   - id: plan
     path: plan.md
     version: 1.0.0
@@ -28,14 +28,14 @@ artifacts:
     derived_from_version: 1.0.0
   - id: lld
     path: design-lld.md
-    version: 1.0.2
+    version: 1.0.3
     upstream: hld
     derived_from_version: 1.0.0
   - id: tasks
-    # Re-reviewed against lld 1.0.2: the two engine corrections change no task —
-    # both are covered by T023's rule-engine test checkpoint, which now also
-    # carries the regression tests that pin them.
+    # Re-reviewed against lld 1.0.3: the citation and CLI-language corrections
+    # change no task — they are covered by T034's agent checkpoint and T050's
+    # CLI checkpoint, which now carry the regression tests that pin them.
     path: tasks.md
     version: 1.0.0
     upstream: lld
-    derived_from_version: 1.0.2
+    derived_from_version: 1.0.3

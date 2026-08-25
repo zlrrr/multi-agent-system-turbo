@@ -201,7 +201,7 @@ func TestCreateDiagnosisValidation(t *testing.T) {
 		"no target":        {map[string]any{"symptom": "x"}, http.StatusBadRequest, "MAS-1007"},
 		"no symptom":       {map[string]any{"target": "redis-prod"}, http.StatusBadRequest, "MAS-1007"},
 		"unknown target":   {map[string]any{"target": "ghost", "symptom": "x"}, http.StatusNotFound, "MAS-1005"},
-		"unknown topology": {map[string]any{"target": "redis-prod", "symptom": "x", "topology": "debate"}, http.StatusBadRequest, "MAS-3001"},
+		"unknown topology": {map[string]any{"target": "redis-prod", "symptom": "x", "topology": "no-such-topology"}, http.StatusBadRequest, "MAS-3001"},
 		"bad mode":         {map[string]any{"target": "redis-prod", "symptom": "x", "mode": "hybrid"}, http.StatusBadRequest, "MAS-1011"},
 		"bad since":        {map[string]any{"target": "redis-prod", "symptom": "x", "since": "soon"}, http.StatusBadRequest, "MAS-7001"},
 		"half window":      {map[string]any{"target": "redis-prod", "symptom": "x", "from": "2026-01-01T00:00:00Z"}, http.StatusBadRequest, "MAS-7001"},

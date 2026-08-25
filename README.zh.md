@@ -77,7 +77,7 @@ Redis 已达到其配置的内存上限。驱逐先于延迟上升发生，且�
 | 无法变更目标 | 所有副作用都经过单一收口点；默认拒绝；不存在关闭它的配置项。对抗性套件会尝试各种大小写的 FLUSHALL、参数注入、`pods/exec`、以及知识包提供的命令 —— 没有一条能抵达 |
 | 缺失的测量绝不会被当成健康 | 输入采集失败的检查会被**跳过**并记录缺口，绝不会被求值为“通过” |
 | 数据源挂掉不会丢掉分析 | 每个失败都变成带错误码、并说明其对置信度影响的缺口；运行照常完成 |
-| 结果可复现 | 相同输入产出相同报告，即便在并发拓扑下也是如此 |
+| 结果可复现 | 相同输入产出相同报告，即便在会并发运行角色的拓扑下也是如此 |
 | 运行可审计 | 每次工具调用、模型交互与结论都带完整性摘要持久化；重放可在断网下复现报告 |
 | 凭据绝不泄漏 | 脱敏发生在日志 handler 而非调用点；密钥在任何格式下都无法被打印 |
 
@@ -90,7 +90,7 @@ Redis 已达到其配置的内存上限。驱逐先于延迟上升发生，且�
 | **环境** | Kubernetes（只读 API）；本地主机 |
 | **源码** | 网络仓库并在不可达时自动回退到本地镜像，另含代码检索 |
 | **模型** | Anthropic、任意 OpenAI 兼容端点，以及确定性 mock |
-| **拓扑** | `supervisor`（默认）、`single`（对照组） |
+| **拓扑** | `supervisor`（默认）、`single`（对照组）、`plan-execute`（自适应）、`debate`（对抗式）、`blackboard`（数据驱动） |
 | **接口** | CLI、HTTP API、容器镜像 |
 
 明确尚未提供：Kubernetes 容器内命令执行、API 认证、Web UI。
@@ -108,8 +108,9 @@ mas doctor
 mas diagnose --target redis-prod --symptom "p99 延迟毛刺" --since 1h
 
 # 在同一个 case 上比较拓扑
-mas diagnose -t redis-prod -s "延迟毛刺" --topology single -f json -o single.json
-mas diagnose -t redis-prod -s "延迟毛刺" --topology supervisor -f json -o supervisor.json
+for t in single supervisor plan-execute debate blackboard; do
+  mas diagnose -t redis-prod -s "延迟毛刺" --topology "$t" -f json -o "$t.json"
+done
 ```
 
 配置、RBAC、API 与知识包编写详见[用户手册](./docs/zh/user-manual.md)。

@@ -34,6 +34,7 @@
 | `MAS-2007` | warn | `TokenBudgetExceeded` | token 预算在 %d tokens 后耗尽 | 提高 run.budget.max_tokens，或接受被截断的分析结果。 |
 | `MAS-2008` | error | `ProviderResponseMalformed` | LLM 供应商 %q 返回了格式错误的响应：%s | 确认 base_url 指向兼容的 API；开启 debug 日志可查看响应体。 |
 | `MAS-2009` | error | `MockScriptExhausted` | mock provider 脚本在第 %d 轮没有可用回复 | 扩展 mock 脚本；该情况仅出现在测试与演示中。 |
+| `MAS-2010` | warn | `CitationUnresolved` | 模型引用了本次运行并未采集到的 %d 条引用：%s | 这些无法解析的引用已从报告中剔除。模型引用了未曾提供给它的证据，说明它在猜；请在转录中查看是哪个角色产出的。 |
 
 ## Agent 与编排
 

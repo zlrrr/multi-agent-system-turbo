@@ -52,7 +52,7 @@
 | T031 | `llm/mock` 脚本化确定性 provider | 第六条 VI.3、NFR-006、NFR-010 | `TestMockDeterminism`、`TestMockToolSequence` | T030 | done |
 | T032 | `llm/anthropic` [P] | FR-010 | `TestAnthropicToolRoundTrip`、`TestAnthropicErrorMapping`、`TestAPIKeyRedactedInErrors` | T030 | done |
 | T033 | `llm/openai`（OpenAI 兼容） [P] | FR-010 | `TestOpenAIToolRoundTrip`、`TestBaseURLOverride`、`TestOpenAIErrorMapping` | T030 | done |
-| T034 | `internal/agent`：`State`、预算、`toolLoop`、提示词模板 | FR-009、FR-019 | `TestBudgetEnforced`、`TestInvalidToolCallRepairThenGap` | T031、T010 | done |
+| T034 | `internal/agent`：`State`、预算、`toolLoop`、提示词模板 | FR-009、FR-019 | `TestBudgetEnforced`、`TestInvalidToolCallRepairThenGap`、`TestFabricatedCitationsAreDroppedAndRecorded`、`TestRealCitationsSurvive` | T031、T010 | done |
 | T035 | 角色：规划、调查、关联、批判、报告 | G7.1 | 每个角色一个针对脚本化 mock 的行为测试 | T034 | done |
 | T036 | `internal/orchestrator`：接口、注册表、`single` | FR-009 | `TestSingleProducesReport`、`TestRegistryRejectsDuplicate` | T035 | done |
 | T037 | `orchestrator/supervisor`，含并发调查者 | FR-009 | `TestSupervisorProducesReport`、`-race` 干净 | T036 | done |
@@ -72,7 +72,7 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| T050 | `internal/cli`：全部子命令、全局参数、输出格式 | FR-014 | 每个子命令的冒烟测试 | T042 | done |
+| T050 | `internal/cli`：全部子命令、全局参数、输出格式 | FR-014 | 每个子命令的冒烟测试；`TestWrapMeasuresColumnsNotBytes`、`TestWrapBreaksCJKWithoutSpaces` | T042 | done |
 | T051 | `mas doctor` 覆盖配置、遥测、环境、LLM、知识包、源码 | FR-018 | `TestDoctorAgainstStubs` | T050 | done |
 | T052 | `internal/httpapi`：端点、健康检查、`/metrics`、错误映射 | FR-015 | 每个端点一个测试，含 4xx 路径 | T042 | done |
 | **G-F** | **闸门 F** | | `go test ./internal/cli/... ./internal/httpapi/...` 全绿 | | done |

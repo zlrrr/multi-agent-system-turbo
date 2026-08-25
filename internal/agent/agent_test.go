@@ -443,3 +443,70 @@ func TestLanguageInstructionSwitches(t *testing.T) {
 		t.Fatal("the Chinese language instruction was not applied")
 	}
 }
+
+// TestFabricatedCitationsAreDroppedAndRecorded pins a correctness rule the
+// topology conformance contract exposed: a model that cites evidence it was
+// never given is guessing, and a report that reprints the citation launders the
+// guess into provenance. The reference is dropped and the fabrication is
+// recorded, because an operator who sees "supported by ev-7" has no way to know
+// ev-7 does not exist.
+func TestFabricatedCitationsAreDroppedAndRecorded(t *testing.T) {
+	s := newState(t, mock.New(mock.DefaultScript()))
+
+	id := s.AddHypothesis(core.Hypothesis{
+		Statement:     "memory pressure",
+		Supporting:    []string{"f-1", "ev-404", "  "},
+		Contradicting: []string{"ev-999"},
+	})
+
+	var got core.Hypothesis
+	for _, h := range s.Hypotheses() {
+		if h.ID == id {
+			got = h
+		}
+	}
+	if want := []string{"f-1"}; len(got.Supporting) != 1 || got.Supporting[0] != want[0] {
+		t.Errorf("supporting = %v, want %v: only references this run produced may survive",
+			got.Supporting, want)
+	}
+	if len(got.Contradicting) != 0 {
+		t.Errorf("contradicting = %v, want none", got.Contradicting)
+	}
+
+	found := false
+	for _, g := range s.Gaps() {
+		if g.Code == "MAS-2010" {
+			found = true
+			if !strings.Contains(g.Detail, "ev-404") || !strings.Contains(g.Detail, "ev-999") {
+				t.Errorf("the gap does not name the fabricated references: %s", g.Detail)
+			}
+			if g.Impact == "" {
+				t.Error("the gap does not say what the operator loses")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("fabricated citations were dropped silently; gaps: %+v", s.Gaps())
+	}
+}
+
+// TestRealCitationsSurvive is the other half: the check must not quietly strip
+// the provenance a correct run depends on.
+func TestRealCitationsSurvive(t *testing.T) {
+	s := newState(t, mock.New(mock.DefaultScript()))
+	s.AddEvidence(core.Evidence{ID: "ev-1", Kind: core.EvidenceNote, Source: "test", Summary: "x"})
+
+	id := s.AddHypothesis(core.Hypothesis{
+		Statement: "memory pressure", Supporting: []string{"ev-1", "f-1"},
+	})
+	for _, h := range s.Hypotheses() {
+		if h.ID == id && len(h.Supporting) != 2 {
+			t.Errorf("supporting = %v, want both references kept", h.Supporting)
+		}
+	}
+	for _, g := range s.Gaps() {
+		if g.Code == "MAS-2010" {
+			t.Errorf("valid citations were reported as fabricated: %s", g.Detail)
+		}
+	}
+}

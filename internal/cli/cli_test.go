@@ -197,7 +197,7 @@ func TestDiagnoseErrorsCarryCodesAndRemedies(t *testing.T) {
 		exit int
 	}{
 		"unknown target":   {[]string{"diagnose", "--target", "ghost", "--symptom", "x"}, "MAS-1005", 2},
-		"unknown topology": {[]string{"diagnose", "--target", "redis-prod", "--symptom", "x", "--topology", "debate"}, "MAS-3001", 5},
+		"unknown topology": {[]string{"diagnose", "--target", "redis-prod", "--symptom", "x", "--topology", "no-such-topology"}, "MAS-3001", 5},
 		"bad mode":         {[]string{"diagnose", "--target", "redis-prod", "--symptom", "x", "--mode", "hybrid"}, "MAS-1011", 2},
 		"bad since":        {[]string{"diagnose", "--target", "redis-prod", "--symptom", "x", "--since", "soon"}, "MAS-1010", 2},
 		"half window":      {[]string{"diagnose", "--target", "redis-prod", "--symptom", "x", "--from", "2026-01-01T00:00:00Z"}, "MAS-1010", 2},
@@ -406,6 +406,52 @@ func TestHelpIsAvailableForEverySubcommand(t *testing.T) {
 		}
 		if !strings.Contains(out, "Usage:") {
 			t.Errorf("%s --help printed no usage", name)
+		}
+	}
+}
+
+// TestTopologiesCommandDescribesEveryTopologyBilingually is FR-010. An operator
+// choosing between five architectures needs each one's cost and, decisively,
+// when *not* to pick it — in the language they configured.
+func TestTopologiesCommandDescribesEveryTopologyBilingually(t *testing.T) {
+	h := newHarness(t)
+	out, errOut, code := h.run("topologies")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, name := range []string{"single", "supervisor", "plan-execute", "debate", "blackboard"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("`mas topologies` does not list %q:\n%s", name, out)
+		}
+	}
+	for _, phrase := range []string{"Cost:", "Choose it when:", "Avoid it when:"} {
+		if !strings.Contains(out, phrase) {
+			t.Errorf("`mas topologies` omits %q, so the operator cannot compare:\n%s", phrase, out)
+		}
+	}
+
+	// The JSON form carries both languages, because the caller may not be the
+	// operator.
+	jsonOut, _, code := h.run("topologies", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	var details map[string]map[string]map[string]string
+	if err := json.Unmarshal([]byte(jsonOut), &details); err != nil {
+		t.Fatalf("--json is not valid JSON: %v\n%s", err, jsonOut)
+	}
+	for _, name := range []string{"single", "supervisor", "plan-execute", "debate", "blackboard"} {
+		d, ok := details[name]
+		if !ok {
+			t.Errorf("--json omits %q", name)
+			continue
+		}
+		for _, field := range []string{"Summary", "Cost", "Choose", "Avoid"} {
+			for _, lang := range []string{"en", "zh"} {
+				if strings.TrimSpace(d[field][lang]) == "" {
+					t.Errorf("%s.%s has no %s text", name, field, lang)
+				}
+			}
 		}
 	}
 }

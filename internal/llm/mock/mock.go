@@ -259,6 +259,53 @@ func DefaultScript() *Script {
 			When: "role: investigator (source)",
 			Text: "The refusal is emitted when the used-memory check fails ahead of command execution, which confirms the client errors are the documented maxmemory path.",
 		},
+		// ── plan-execute ────────────────────────────────────────────────
+		// The round-2 reply is listed first: matching is first-hit, and the
+		// phrase below appears only once a round has been executed.
+		{
+			When: "what the executed objectives established",
+			Text: `{"objectives":[],"done":true,"reasoning":"The ordering of eviction before latency is established and the log confirms the refusals; a further objective could not change the conclusion."}`,
+		},
+		{
+			When: "role: strategist",
+			Text: `{"objectives":[
+  {"domain":"metrics","statement":"Establish whether eviction began before or after the latency rise, which decides cause from effect."},
+  {"domain":"logs","statement":"Establish whether Redis refused writes inside the window, and whether it restarted."}
+],"done":false,"reasoning":"Both would change the conclusion depending on how they come out; nothing else would."}`,
+		},
+		{
+			When:      "objective, in the metrics domain",
+			ToolCalls: []ScriptedCall{{Name: "promql.range", Args: map[string]any{"query": "rate(redis_evicted_keys_total[5m])"}}},
+		},
+		{
+			When: "objective, in the metrics domain",
+			Text: "Eviction begins roughly four minutes before the latency rise, so eviction leads and latency follows.",
+		},
+		{
+			When:      "objective, in the logs domain",
+			ToolCalls: []ScriptedCall{{Name: "loki.query", Args: map[string]any{"query": `{job="redis"} |= "OOM"`, "limit": 100}}},
+		},
+		{
+			When: "role: executor",
+			Text: "The log carries repeated 'OOM command not allowed' refusals and no restart marker, so the process stayed up while refusing writes.",
+		},
+
+		// ── debate ──────────────────────────────────────────────────────
+		{
+			When: "role: advocate",
+			Text: `The evidence for this position is the ordering: eviction begins before the latency rise, which is the wrong way round for latency to be the cause. The log adds refusals in the same window from the documented maxmemory path.
+
+What the competing positions explain better: neither the CPU series nor the fork pauses were measured finely enough to rule out a brief block, so a slow-command explanation is weakened rather than eliminated.`,
+		},
+		{
+			When: "role: judge",
+			Text: `{"assessments":[
+  {"id":"h-1","status":"supported","confidence":0.82,"rationale":"The ordering argument rests on collected series rather than on plausibility, and no collected evidence contradicts it."},
+  {"id":"h-2","status":"inconclusive","confidence":0.15,"rationale":"The advocate conceded the CPU series is too coarse to eliminate a brief block; that is a gap, not a refutation."},
+  {"id":"h-3","status":"refuted","confidence":0.05,"rationale":"Contradicted by the absence of any OOMKilled event or restart marker."}
+]}`,
+		},
+
 		{
 			When: "role: correlator",
 			Text: `{"hypotheses":[

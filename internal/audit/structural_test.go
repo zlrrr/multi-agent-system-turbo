@@ -212,3 +212,42 @@ func TestGuardIsTheOnlyAuthorizer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestTopologiesOnlyOrchestrate is feature 003's structural guarantee
+// (NFR-001, NFR-005). A topology is a control flow over roles: it decides who
+// acts and in what order. If it could reach a tool directly, or build its own
+// registry or invoker, then two topologies could differ in *capability* — and a
+// difference in their output would no longer be attributable to the
+// architecture, which is the only reason to make them switchable.
+func TestTopologiesOnlyOrchestrate(t *testing.T) {
+	root := repoRoot(t)
+	dir := filepath.Join(root, "internal", "orchestrator")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Constructing a registry or an invoker, or invoking a tool by name, are the
+	// three ways a topology could give itself capability its peers lack.
+	forbidden := map[string]string{
+		`tool\.NewRegistry\(`: "a topology must use the registry the run handed it, not build its own",
+		`tool\.NewInvoker\(`:  "a topology must use the invoker the run handed it, not build its own",
+		`\.Invoke\(`:          "a topology must reach tools through a role, never call one itself",
+		`safety\.NewGuard\(`:  "no topology may construct a guard; the run's guard is the only one",
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		body, rerr := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // repository path
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		for pattern, why := range forbidden {
+			if regexp.MustCompile(pattern).Match(body) {
+				t.Errorf("internal/orchestrator/%s matches %q: %s", e.Name(), pattern, why)
+			}
+		}
+	}
+}

@@ -242,21 +242,42 @@ in the JSON form is always `true`.
 mas topologies
 ```
 
-| Topology | Shape | Use it when |
-|---|---|---|
-| `supervisor` | Planner → concurrent per-domain investigators → correlator → critic → reporter | Default. Specialisation plus explicit refutation |
-| `single` | One generalist agent with every tool | Cheapest; the control condition when comparing topologies |
+Five architectures ship. They differ in **control flow only**: every one of them
+reads the same deterministic findings, uses the same guarded tools, and writes
+through the same shared state. That is what makes choosing between them a
+decision you can settle with evidence.
+
+| Topology | Shape | Cost | Choose it when | Avoid it when |
+|---|---|---|---|---|
+| `supervisor` | Planner → concurrent per-domain investigators → correlator → critic → reporter | Moderate, predictable; domain calls overlap | The default: evidence is spread across domains and one broad pass reaches it | Evidence is expensive and one check would probably settle it |
+| `single` | One generalist with every tool | Cheapest: one conversation | You want the control condition — the baseline others must beat | The incident is ambiguous; nothing challenges a plausible first answer |
+| `plan-execute` | Strategist names an objective → executor pursues it → strategist re-plans → … | Lowest when the first objective settles it; highest when it does not | Evidence is expensive, or one check would probably answer it. The only topology that can stop after one | You already know several domains are involved; then it costs the same as `supervisor` and runs in series |
+| `debate` | Investigate → correlate → an advocate argues each position → judge decides | Dearest: `supervisor` plus one call per position, up to three | Two explanations fit the same evidence and choosing wrong is expensive | The evidence already points one way; a staged debate can lend a weak position standing it did not earn |
+| `blackboard` | Contributors act when the shared state makes them eligible, in rounds, until a round changes nothing | Varies with what evidence exists; control itself costs no model calls | Evidence arrives unevenly and a fixed script would spend calls discovering that | You want a predictable transcript: what runs depends on the state |
+
+`mas topologies` prints the same table in your configured language, and
+`mas topologies --json` carries both languages for an integration to render.
+
+### Comparing them on your own incidents
 
 Because the topology is the *only* thing that changes between runs of the same
-case — same evidence, same tools, same deterministic findings — running one case
-through several topologies is a genuine comparison:
+case, running one case through several is a genuine comparison rather than an
+impression:
 
 ```bash
-for t in single supervisor; do
+for t in single supervisor plan-execute debate blackboard; do
   mas diagnose -t redis-prod -s "latency spike" --since 1h \
     --topology "$t" -f json -o "runs/$t.json"
 done
+
+# What each one cost, and what it concluded:
+jq -r '[.topology, (.usage.llm_calls|tostring), (.usage.tool_calls|tostring),
+        (.usage.wall_millis|tostring), .hypotheses[0].statement] | @tsv' runs/*.json
 ```
+
+This project compares topologies; it does not score them. Declaring a winner
+would need a corpus of cases with known causes, which is separate work — so the
+cost figures above are measurements and the conclusions are yours to judge.
 
 ## 9. Extending the knowledge
 

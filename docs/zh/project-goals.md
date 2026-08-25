@@ -1,6 +1,6 @@
 # 项目目标 — multi-agent-system-turbo（MAS-Turbo）
 
-> **版本**：1.1.1 · **状态**：已批准 · **日期**：2026-08-24
+> **版本**：1.1.2 · **状态**：已批准 · **日期**：2026-08-24
 > **双语对应文件**：[`../en/project-goals.md`](../en/project-goals.md)
 > **受管辖于**：[`.specify/memory/constitution.zh.md`](../../.specify/memory/constitution.zh.md) v1.0.0
 > **下游**：`specs/001-*/spec.zh.md`、`specs/002-*/spec.zh.md`、…
@@ -183,7 +183,7 @@ Pulsar、Kafka、OceanBase、Milvus 等 —— 通过关联指标、日志、集
 | P1-1 | 本地/二进制环境适配器 | G5.2 | 已在 M1 交付 |
 | P1-2 | 源码获取（网络→本地回退）与代码检索 | G6 | 已在 M1 交付 |
 | P1-3 | 知识包：MongoDB、Pulsar、Milvus、OceanBase | G2.2 | 已交付（`specs/002-middleware-packs`） |
-| P1-4 | 拓扑：`plan-execute`、`debate`、`blackboard` | G7.2 | 计划中 |
+| P1-4 | 拓扑：`plan-execute`、`debate`、`blackboard` | G7.2 | 已交付（`specs/003-switchable-topologies`） |
 | P1-5 | 按 Agent 的模型路由 | G8.2 | 计划中 |
 | P1-6 | 按运行呈现成本/时延/token 统计 | G7.4 | 计划中 |
 | P1-7 | Kubernetes 容器内 `exec`（只读命令） | G5.1 | 计划中 |
@@ -209,7 +209,7 @@ Pulsar、Kafka、OceanBase、Milvus 等 —— 通过关联指标、日志、集
 | 里程碑 | 出口标准 | 状态 |
 |---|---|---|
 | **M1** | `make ci` 全绿；容器镜像可对着 mock provider 与固定遥测桩端到端跑通 `mas diagnose`；产出报告；手册发布；发布流水线产出制品 | **已达成。** `make ci` 全绿（格式化、vet、lint、race 测试、SDD 校验、构建）；`make demo` 在无凭据、仅用桩遥测的情况下产出中英文报告；以 uid 65532 运行的容器可完成诊断并返回文档规定的退出码；双语手册、配置参考与错误码参考均已发布 |
-| M2 | 六个知识包全部通过一致性测试**（已达成）**；Kubernetes 容器内 `exec`；≥4 种拓扑可选 | 源码回退已在模拟断网下验证（M1 已交付） |
+| M2 | 六个知识包全部通过一致性测试**（已达成）**；Kubernetes 容器内 `exec`；≥4 种拓扑可选**（已达成：五种，且全部对着同一份一致性契约）** | 源码回退已在模拟断网下验证（M1 已交付） |
 | M3 | ≥20 个场景的 case 语料库；拓扑对比报告可由一条命令复现 | 未开始 |
 | M4 | API 接入认证；运行存储可插拔；UI 可展示报告 | 运行存储已可插拔（`RunStore`，M1 已交付） |
 
@@ -228,6 +228,7 @@ Pulsar、Kafka、OceanBase、Milvus 等 —— 通过关联指标、日志、集
 
 | 版本 | 日期 | 修订内容 | 理由 | 级联至 |
 |---|---|---|---|---|
+| 1.1.2 | 2026-08-24 | 记录 M2 的 P1-4 已交付：现已内置五种拓扑，且全部对着同一份一致性契约，因此"架构可切换"这一目标是可检验的，而不只是断言 | backlog 反映已交付范围；目标本身未变 | `specs/003-switchable-topologies/` |
 | 1.1.1 | 2026-08-24 | 记录 M2 的 P1-3 已交付（MongoDB、Pulsar、Milvus、OceanBase 知识包）；M3 的 P2-3 提前并与之一并交付 —— 若在知识包写完之后才写一致性契约，那份契约会被知识包反向塑形；Kubernetes 容器内 `exec` 单独列为 P1-7，而不再只存在于一句变更记录里 | backlog 反映已交付范围；目标本身未变 | `specs/002-middleware-packs/` |
 | 1.1.0 | 2026-08-24 | 记录 M1 已交付；实施过程中有两项被提升进 M1（P1-1 的本地主机适配器、P1-2 的带本地回退的源码获取），因为二者都被证明是自包含的，且都是既定目标中的标志性能力；Kubernetes 容器内 `exec` 相应地从 M1 移入 M2 | 让已交付范围与计划范围对齐，使 backlog 反映现实而非意图 | `specs/001-mvp-core/spec.zh.md` §3（已在实施前修订） |
 | 1.0.0 | 2026-08-23 | 将给定的项目目标初次分解为 G1–G13、非目标 NG-1–NG-6，以及 M1–M4 优先级 backlog | 基线 | `specs/001-mvp-core/*` |

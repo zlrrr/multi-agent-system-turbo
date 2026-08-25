@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -56,14 +57,7 @@ func (e *env) load() (*service.Service, error) {
 		overrides["llm.model"] = e.g.model
 	}
 
-	var paths []string
-	if e.g.configPath != "" {
-		paths = []string{e.g.configPath}
-	} else if p := os.Getenv("MAS_CONFIG"); p != "" {
-		paths = []string{p}
-	}
-
-	cfg, err := config.Load(paths, nil, overrides)
+	cfg, err := config.Load(e.configPaths(), nil, overrides)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +65,36 @@ func (e *env) load() (*service.Service, error) {
 	logger := obs.Setup(cfg.Log, redactor, e.errOut)
 	obs.SetFallbackLogger(logger)
 	return service.New(service.Options{Config: cfg, Redactor: redactor, Logger: logger})
+}
+
+// configPaths is where configuration is read from: the --config flag, then
+// MAS_CONFIG, then the default search path.
+func (e *env) configPaths() []string {
+	if e.g.configPath != "" {
+		return []string{e.g.configPath}
+	}
+	if p := os.Getenv("MAS_CONFIG"); p != "" {
+		return []string{p}
+	}
+	return nil
+}
+
+// lang resolves the operator's language for the commands that only list things:
+// the --lang flag if given, otherwise whatever the configuration says.
+//
+// A broken configuration must not stop it. Looking up an error code or reading
+// what a topology does is exactly what an operator does *while* their config is
+// broken, so a load failure falls back to English rather than failing the
+// command; `mas doctor` is where a bad config is reported.
+func (e *env) lang() string {
+	if e.g.language != "" {
+		return e.g.language
+	}
+	if cfg, err := config.Load(e.configPaths(), nil, nil); err == nil &&
+		strings.TrimSpace(cfg.Run.Language) != "" {
+		return cfg.Run.Language
+	}
+	return "en"
 }
 
 // Execute builds and runs the CLI. It returns the process exit code rather than
