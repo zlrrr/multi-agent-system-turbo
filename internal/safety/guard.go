@@ -34,6 +34,21 @@ type CommandEffect struct {
 	Args   []string
 }
 
+// ExecEffect describes running a command inside a container in a Kubernetes pod.
+//
+// It is one effect with two constraints rather than two effects. Modelling it as
+// an HTTP call plus a command call would leave the composition to the caller,
+// and a caller that authorised only the transport would still compile and still
+// run — the omission would be invisible until someone read the code
+// (design-hld.md §3).
+type ExecEffect struct {
+	Namespace string
+	Pod       string
+	Container string
+	Binary    string
+	Args      []string
+}
+
 // FileEffect describes an intended file read.
 type FileEffect struct {
 	Path string
@@ -45,6 +60,7 @@ type Call struct {
 	Class   Class
 	HTTP    *HTTPEffect
 	Command *CommandEffect
+	Exec    *ExecEffect
 	File    *FileEffect
 	Bytes   int
 	Timeout time.Duration
@@ -356,7 +372,7 @@ func (g *Guard) Authorize(_ context.Context, c Call) error {
 
 	// 3 · exactly one effect must be declared
 	declared := 0
-	for _, present := range []bool{c.HTTP != nil, c.Command != nil, c.File != nil} {
+	for _, present := range []bool{c.HTTP != nil, c.Command != nil, c.Exec != nil, c.File != nil} {
 		if present {
 			declared++
 		}
@@ -371,6 +387,8 @@ func (g *Guard) Authorize(_ context.Context, c Call) error {
 		return g.authorizeHTTP(c)
 	case c.Command != nil:
 		return g.authorizeCommand(c)
+	case c.Exec != nil:
+		return g.authorizeExec(c)
 	default:
 		return g.authorizeFile(c)
 	}
@@ -532,12 +550,84 @@ func containsSequence(positionals, seq []string) bool {
 	return false
 }
 
+// authorizeExec applies both constraints an exec is subject to.
+//
+// The command check reuses authorizeCommand verbatim rather than reimplementing
+// it: the whole claim of this feature is that exec changes *where* vetted
+// commands run and never *which* commands are vetted, and two copies of the
+// allow-list logic would eventually make that claim false.
+func (g *Guard) authorizeExec(c Call) error {
+	e := c.Exec
+
+	// 1 · path components, before anything is built from them. The path rule
+	//     below is a regex over a URL assembled from these three fields; a
+	//     component containing a slash or a traversal would produce a URL that
+	//     still matches the rule while addressing something else entirely.
+	for _, part := range []struct{ what, value string }{
+		{"namespace", e.Namespace}, {"pod", e.Pod}, {"container", e.Container},
+	} {
+		if part.what == "container" && part.value == "" {
+			continue // the pod's default container
+		}
+		if !validPathComponent(part.value) {
+			return errs.New("MAS-8005", part.what,
+				fmt.Sprintf("%q is not a valid Kubernetes name", part.value)).With("tool", c.Tool)
+		}
+	}
+
+	// 2 · the command, through the same allow-list as any local command.
+	if err := g.authorizeCommand(Call{
+		Tool:  c.Tool,
+		Class: c.Class,
+		Command: &CommandEffect{
+			Binary: e.Binary,
+			Args:   e.Args,
+		},
+	}); err != nil {
+		return err
+	}
+
+	// 3 · the endpoint the effect implies.
+	//
+	// This is checked against execPath rather than through the general HTTP
+	// allow-list, and deliberately so: the exec subresource stays *absent* from
+	// DefaultPathRules, so a tool that declared a plain HTTPEffect against it
+	// is still refused. The endpoint is reachable only through the effect that
+	// also checks the command — which is the whole point of making exec one
+	// effect with two constraints.
+	path := "/api/v1/namespaces/" + e.Namespace + "/pods/" + e.Pod + "/exec"
+	if !execPath.MatchString(path) {
+		return errs.New("MAS-8003", "GET "+path).With("tool", c.Tool)
+	}
+	return nil
+}
+
+// execPath is the one endpoint an ExecEffect may address. It is not part of
+// DefaultPathRules: keeping it out is what stops a bare HTTP call from reaching
+// exec without the command allow-list being consulted.
+var execPath = regexp.MustCompile(`^/api/v1/namespaces/[^/]+/pods/[^/]+/exec$`)
+
+// validPathComponent accepts the shape Kubernetes itself accepts for a name:
+// lowercase alphanumerics, '-' and '.', bounded in length. Anything else could
+// change which endpoint the assembled URL addresses.
+var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+
+func validPathComponent(v string) bool {
+	if v == "" || len(v) > 253 || strings.Contains(v, "..") {
+		return false
+	}
+	return dns1123.MatchString(v)
+}
+
 func describe(c Call) string {
 	switch {
 	case c.HTTP != nil:
 		return strings.ToUpper(c.HTTP.Method) + " " + c.HTTP.URL
 	case c.Command != nil:
 		return strings.TrimSpace(c.Command.Binary + " " + strings.Join(c.Command.Args, " "))
+	case c.Exec != nil:
+		return "exec in " + c.Exec.Namespace + "/" + c.Exec.Pod + ": " +
+			strings.TrimSpace(c.Exec.Binary+" "+strings.Join(c.Exec.Args, " "))
 	case c.File != nil:
 		return "read " + c.File.Path
 	default:

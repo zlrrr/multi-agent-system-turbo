@@ -123,6 +123,7 @@ configured, because it is not a real analysis.
 | `ca_file` | CA bundle path |
 | `tls_insecure_skip_verify` | Disable certificate verification. Do not use in production |
 | `timeout` | Per-request timeout |
+| `exec` | `false` disables in-container inspection for this environment. Narrowing only: absent or `true` means the guard's read-only allow-list decides each command, exactly as it does on a host |
 
 Supported credential sources: in-cluster service account, kubeconfig bearer
 token, `tokenFile`, client certificate, and basic auth.

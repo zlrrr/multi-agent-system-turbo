@@ -148,7 +148,20 @@ type EnvConfig struct {
 	CAFile     string   `yaml:"ca_file" json:"ca_file"`
 	TLSSkip    bool     `yaml:"tls_insecure_skip_verify" json:"tls_insecure_skip_verify"`
 	Timeout    Duration `yaml:"timeout" json:"timeout"`
+
+	// Exec turns in-container execution off for this environment. It is a
+	// pointer so that "unset" and "false" are distinguishable: unset means the
+	// guard decides per command, which is the default.
+	//
+	// The switch can only narrow. There is deliberately no key that widens what
+	// may run — Constitution Art. IV.2 — so setting it to true grants nothing
+	// beyond the allow-list that already applies.
+	Exec *bool `yaml:"exec" json:"exec,omitempty"`
 }
+
+// ExecEnabled reports whether in-container execution may be offered for this
+// environment. The guard still decides every individual command.
+func (e EnvConfig) ExecEnabled() bool { return e.Exec == nil || *e.Exec }
 
 // TargetConfig declares a middleware deployment that may be diagnosed.
 type TargetConfig struct {

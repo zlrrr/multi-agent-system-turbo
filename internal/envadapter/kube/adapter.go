@@ -3,13 +3,16 @@ package kube
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/safety"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/tool"
+	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
 
 func init() {
@@ -18,7 +21,10 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		return &Adapter{name: name, client: c, defaultNS: cfg.Namespace}, nil
+		return &Adapter{
+			name: name, client: c, defaultNS: cfg.Namespace,
+			execEnabled: cfg.ExecEnabled(),
+		}, nil
 	})
 }
 
@@ -27,12 +33,33 @@ type Adapter struct {
 	name      string
 	client    *Client
 	defaultNS string
+
+	// Exec state. instances is what the target resolved to, and exec is bound
+	// to it: the tool takes an instance name and looks it up here, so no
+	// argument can reach a pod outside the run's scope.
+	inspects    map[string]InspectCommand
+	instances   []core.Instance
+	instanceNS  string
+	execEnabled bool
+
+	execOnce sync.Once
+	exec     *ExecClient
 }
 
 // NewAdapter builds an adapter around an existing client, which is how tests
 // inject a stub API server.
 func NewAdapter(name string, c *Client, defaultNS string) *Adapter {
-	return &Adapter{name: name, client: c, defaultNS: defaultNS}
+	return &Adapter{name: name, client: c, defaultNS: defaultNS, execEnabled: true}
+}
+
+// SetExecEnabled applies the environment's narrowing switch. It can only turn
+// exec off: there is no path by which anything at runtime widens the guard.
+func (a *Adapter) SetExecEnabled(enabled bool) { a.execEnabled = enabled }
+
+// execClient builds the exec client once, from the read client's credentials.
+func (a *Adapter) execClient() *ExecClient {
+	a.execOnce.Do(func() { a.exec = NewExecClient(a.client) })
+	return a.exec
 }
 
 // Name reports the environment name.
@@ -91,11 +118,19 @@ func versionFromPods(pods []Pod) string {
 }
 
 // Tools returns the cluster-domain capabilities.
+//
+// The exec tool is absent entirely when the environment disabled it, rather
+// than present and refusing: a capability that is not registered cannot be
+// called however a prompt is phrased.
 func (a *Adapter) Tools() []tool.Tool {
-	return []tool.Tool{
+	out := []tool.Tool{
 		&podsTool{a: a}, &podLogsTool{a: a}, &eventsTool{a: a},
 		&nodesTool{a: a}, &workloadsTool{a: a},
 	}
+	if a.execEnabled {
+		out = append(out, &execTool{a: a})
+	}
+	return out
 }
 
 // clusterTool carries what every cluster tool shares. All of them require online
@@ -361,3 +396,215 @@ func truncate(s string, n int) string {
 	}
 	return s[:n-1] + "…"
 }
+
+// InspectCommand is a middleware inspection command a knowledge pack declares.
+// It mirrors the local adapter's type rather than sharing one, because the two
+// adapters are independent by design: a change to how one runs commands must
+// not silently change the other.
+type InspectCommand struct {
+	ID          string
+	Binary      string
+	Args        []string
+	Container   string
+	Description string
+}
+
+// SetInspectCommands installs the commands the run's knowledge pack declares.
+func (a *Adapter) SetInspectCommands(cmds []InspectCommand) {
+	if a.inspects == nil {
+		a.inspects = map[string]InspectCommand{}
+	}
+	for _, c := range cmds {
+		a.inspects[c.ID] = c
+	}
+}
+
+// InspectIDs lists the available inspection commands, sorted.
+func (a *Adapter) InspectIDs() []string {
+	out := make([]string, 0, len(a.inspects))
+	for id := range a.inspects {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SetInstances records which pods the target resolved to. Exec is bound to this
+// set: an agent that could name any pod could read any pod, so the tool takes an
+// instance name and resolves it here rather than accepting a pod name
+// (design-lld.md §5).
+func (a *Adapter) SetInstances(ns string, instances []core.Instance) {
+	a.instanceNS = ns
+	a.instances = instances
+}
+
+// ExecAvailable reports whether exec can be offered, and why not when it cannot.
+// `mas doctor` renders both.
+func (a *Adapter) ExecAvailable() (bool, error) {
+	if !a.execEnabled {
+		return false, errs.New("MAS-4210", a.name)
+	}
+	return true, nil
+}
+
+// execTool runs one pack-declared inspection command inside a pod.
+//
+// It takes an instance name and a command id — never a pod name, and never an
+// argument vector from the model. A model that has read a hostile log line can
+// therefore ask only for a command the pack already declared, in a pod the
+// target already resolved to.
+type execTool struct {
+	clusterTool
+	a *Adapter
+}
+
+func (t *execTool) Name() string { return "kube.exec" }
+
+func (t *execTool) Description() string {
+	return "Run a middleware-specific read-only inspection command declared by the knowledge pack " +
+		"inside the pod that runs it — for example Redis INFO or MongoDB rs.status(). " +
+		"Only pack-declared commands that also pass the read-only allow-list can run, and only in " +
+		"a pod this target resolved to; anything that would change state is refused."
+}
+
+func (t *execTool) ArgsSchema() tool.Schema {
+	return tool.NewSchema(map[string]tool.Property{
+		"id": {Type: tool.TypeString,
+			Description: "Inspection command id from the knowledge pack, e.g. server-info"},
+		"instance": {Type: tool.TypeString,
+			Description: "Instance name from this target's resolved instances; defaults to the first"},
+	}, "id")
+}
+
+// resolve turns the arguments into a concrete command and pod, or refuses.
+func (t *execTool) resolve(args map[string]any) (InspectCommand, core.Instance, error) {
+	id := tool.Str(args, "id", "")
+	cmd, ok := t.a.inspects[id]
+	if !ok {
+		return InspectCommand{}, core.Instance{}, errs.New("MAS-8002", "inspection command "+id)
+	}
+
+	if len(t.a.instances) == 0 {
+		return InspectCommand{}, core.Instance{}, errs.New("MAS-4211", "(none resolved)", t.a.name)
+	}
+	want := tool.Str(args, "instance", "")
+	instance := t.a.instances[0]
+	if want != "" {
+		found := false
+		for _, in := range t.a.instances {
+			if in.Name == want {
+				instance, found = in, true
+				break
+			}
+		}
+		if !found {
+			// The refusal names the target rather than listing pods: an agent
+			// that guessed a pod name learns nothing from being told it guessed
+			// wrong.
+			return InspectCommand{}, core.Instance{}, errs.New("MAS-4211", want, t.a.name)
+		}
+	}
+
+	out := InspectCommand{ID: cmd.ID, Binary: cmd.Binary, Container: cmd.Container,
+		Description: cmd.Description}
+	out.Args = substituteInContainer(cmd.Args)
+	return out, instance, nil
+}
+
+// substituteInContainer rewrites a pack's argument template for execution
+// *inside* the container the middleware runs in.
+//
+// The host is always the loopback address there. The port is not known — an
+// instance carries a pod IP, not a port — and that is fine, because a client
+// run inside the container reaches its own server on the default port with no
+// flag at all. What must not happen is dropping an empty value while keeping the
+// flag that introduced it: `redis-cli -h 127.0.0.1 -p INFO all` makes `-p`
+// swallow `INFO`, and the guard then sees a first positional of `all`, refuses
+// it, and reports something that looks like a bad allow-list rather than a bad
+// argument vector. So a flag whose value disappears goes with it.
+func substituteInContainer(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if strings.Contains(a, "{{.port}}") {
+			// Drop the value and the flag that introduced it.
+			if n := len(out); n > 0 && strings.HasPrefix(out[n-1], "-") {
+				out = out[:n-1]
+			}
+			continue
+		}
+		a = strings.ReplaceAll(a, "{{.host}}", "127.0.0.1")
+		if strings.TrimSpace(a) == "" {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+func (t *execTool) Plan(args map[string]any) (safety.Call, error) {
+	cmd, instance, err := t.resolve(args)
+	if err != nil {
+		return safety.Call{}, err
+	}
+	return safety.Call{
+		Class:   safety.ClassReadOnly,
+		Timeout: t.a.client.Timeout(),
+		Exec: &safety.ExecEffect{
+			Namespace: t.a.instanceNS,
+			Pod:       instance.Name,
+			Container: cmd.Container,
+			Binary:    cmd.Binary,
+			Args:      cmd.Args,
+		},
+	}, nil
+}
+
+func (t *execTool) Invoke(ctx context.Context, args map[string]any) (core.Evidence, error) {
+	cmd, instance, err := t.resolve(args)
+	if err != nil {
+		return core.Evidence{}, err
+	}
+
+	res, err := t.a.execClient().Run(ctx, ExecRequest{
+		Namespace: t.a.instanceNS,
+		Pod:       instance.Name,
+		Container: cmd.Container,
+		Command:   append([]string{cmd.Binary}, cmd.Args...),
+		MaxBytes:  execOutputCeiling,
+	})
+	if err != nil {
+		// The output collected before the failure is still worth reporting, but
+		// the caller decides that: returning the error lets the invoker record
+		// the gap with its code.
+		return core.Evidence{}, err
+	}
+
+	summary := fmt.Sprintf("%s in %s → %d lines", cmd.ID, instance.Name,
+		strings.Count(res.Stdout, "\n"))
+	if res.ExitCode != 0 {
+		summary += fmt.Sprintf(" (exit %d)", res.ExitCode)
+	}
+	if res.Truncated {
+		summary += " (truncated)"
+	}
+	return core.Evidence{
+		Kind:   core.EvidenceCommandOutput,
+		Source: "kube:" + t.a.name,
+		Query:  cmd.Binary + " " + strings.Join(cmd.Args, " ") + " in " + instance.Name,
+		Payload: map[string]any{
+			"output":     res.Stdout,
+			"stderr":     res.Stderr,
+			"exit_code":  res.ExitCode,
+			"command_id": cmd.ID,
+			"pod":        instance.Name,
+			"namespace":  t.a.instanceNS,
+		},
+		Summary:   summary,
+		Truncated: res.Truncated,
+	}, nil
+}
+
+// execOutputCeiling bounds one command's output. `INFO all` is a few kilobytes;
+// anything far past that is a log file someone pointed a tool at, and it would
+// crowd the evidence a report can actually use.
+const execOutputCeiling = 256 * 1024

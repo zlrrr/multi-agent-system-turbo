@@ -87,7 +87,7 @@ Redis 已达到其配置的内存上限。驱逐先于延迟上升发生，且�
 |---|---|
 | **中间件** | 已内置 Redis、Kafka、MongoDB、Pulsar、Milvus、OceanBase 知识包。其余中间件属于纯知识包工作：见[知识包编写指南](./docs/zh/knowledge-packs.md) —— 不改 Go 代码、不需重新编译 |
 | **遥测** | Prometheus、VictoriaMetrics、Thanos、Mimir；Loki |
-| **环境** | Kubernetes（只读 API）；本地主机 |
+| **环境** | Kubernetes（只读 API，另含可关闭的容器内检查）；本地主机 |
 | **源码** | 网络仓库并在不可达时自动回退到本地镜像，另含代码检索 |
 | **模型** | Anthropic、任意 OpenAI 兼容端点，以及确定性 mock |
 | **拓扑** | `supervisor`（默认）、`single`（对照组）、`plan-execute`（自适应）、`debate`（对抗式）、`blackboard`（数据驱动） |

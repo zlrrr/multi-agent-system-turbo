@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/safety"
 )
 
 const module = "github.com/zlrrr/multi-agent-system-turbo"
@@ -250,4 +253,79 @@ func TestTopologiesOnlyOrchestrate(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestExecIsReachableOnlyThroughTheGuard is feature 004's structural guarantee.
+//
+// The Kubernetes exec subresource is deliberately absent from the guard's
+// general path allow-list, so it can be reached only by declaring an
+// ExecEffect — the effect the guard also checks against the command allow-list.
+// A package that built the exec URL for itself would sidestep that, so no
+// package outside the kube adapter may name the subresource at all, and the
+// adapter may name it only in the one file that owns the client.
+func TestExecIsReachableOnlyThroughTheGuard(t *testing.T) {
+	root := repoRoot(t)
+	// Where the exec path may legitimately appear: the client that builds it,
+	// the guard that validates it, and tests.
+	allowed := map[string]bool{
+		"internal/envadapter/kube/exec.go": true,
+		"internal/safety/guard.go":         true,
+	}
+	re := regexp.MustCompile(`pods/[^"]*?/exec|"/exec"|\+ "/exec"`)
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() &&
+				(info.Name() == ".git" || info.Name() == "bin" || info.Name() == "dist") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel := filepath.ToSlash(mustRel(t, root, path))
+		if allowed[rel] {
+			return nil
+		}
+		body, rerr := os.ReadFile(path) //nolint:gosec // repository path
+		if rerr != nil {
+			return nil
+		}
+		if re.Match(body) {
+			t.Errorf("%s builds a Kubernetes exec URL; exec must be reached through an "+
+				"ExecEffect so the guard checks the command as well as the endpoint", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestNoKubectlInTheAllowList pins CON-002. Allow-listing kubectl would put the
+// whole Kubernetes API behind one binary name, which is the failure
+// deny-by-default exists to prevent — and it is the cheap shortcut a future
+// contributor will reach for the next time exec is inconvenient.
+func TestNoKubectlInTheAllowList(t *testing.T) {
+	g, err := safety.NewGuard(config.Default().Safety)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range g.AllowedCommands() {
+		for _, banned := range []string{"kubectl", "oc", "helm", "kubeadm", "crictl", "docker", "nerdctl"} {
+			if rule.Binary == banned {
+				t.Errorf("%q is allow-listed; one binary must not stand in for a whole API", banned)
+			}
+		}
+	}
+}
+
+func mustRel(t *testing.T, base, target string) string {
+	t.Helper()
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rel
 }

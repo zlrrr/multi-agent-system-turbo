@@ -400,17 +400,58 @@ rules:
     verbs: ["get", "list"]
 ```
 
-No `create`, `update`, `patch`, `delete`, or `pods/exec`. If you ever see
+No `create`, `update`, `patch` or `delete` on any resource. If you ever see
 MAS-Turbo request one of those, that is a bug worth reporting.
+
+### In-container inspection (optional)
+
+Reading a middleware's own diagnostics — `redis-cli INFO all`,
+`mongosh --eval "rs.status()"` — means running a command inside its container,
+and in Kubernetes that needs one more permission:
+
+```yaml
+  # Optional. Grant this only if you want in-container inspection.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+```
+
+This is a real widening and it is stated plainly rather than buried:
+`pods/exec` lets the holder run *any* command in *any* pod the role covers. What
+bounds MAS-Turbo is not the RBAC rule but its own guard, and the bound is four
+independent things, none of which any configuration or prompt can widen:
+
+| Bound | Set by |
+|---|---|
+| Which binaries | The read-only command allow-list — `redis-cli`, `mongosh`, `kafka-*.sh`, … and nothing else |
+| Which arguments | Mutating-verb detection and per-flag value allow-lists: `INFO` runs, `FLUSHALL` does not |
+| Which pods | Only the pods the target you named resolved to |
+| Which endpoint | Only the exec subresource; the code cannot address another |
+
+**Exec changes where vetted commands run. It never changes which commands are
+vetted.** `kubectl` is not on the allow-list and will not be added: one binary
+name would put the whole Kubernetes API behind it, which is exactly what
+deny-by-default exists to prevent.
+
+If your policy forbids exec regardless of the command, turn it off and grant
+nothing:
+
+```yaml
+envs:
+  prod:
+    type: kubernetes
+    exec: false
+```
+
+The tool is then not registered at all, so it cannot be called however a prompt
+is phrased. `mas doctor` reports it as a policy decision (`MAS-4210`) rather
+than a missing capability, so nobody spends an afternoon debugging RBAC for a
+switch someone deliberately set.
 
 ## 14. What is deliberately not here yet
 
 Honest scope, so you can plan around it:
 
-- **In-container command execution** (Redis `INFO` inside a pod) — the local host
-  adapter does this today; the Kubernetes `exec` path is the next milestone.
-- **Additional topologies** (`plan-execute`, `debate`, `blackboard`) — the
-  registry is ready for them.
 - **API authentication** — do not expose the API outside a trusted network yet.
 - **A web UI** — CLI and API only for now.
 

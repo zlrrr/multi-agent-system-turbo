@@ -6,7 +6,7 @@ feature: 002-middleware-packs
 artifacts:
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.1.2
+    version: 1.1.3
     upstream: null
     derived_from_version: null
   - id: spec
@@ -16,7 +16,7 @@ artifacts:
     path: spec.md
     version: 1.0.0
     upstream: goals
-    derived_from_version: 1.1.2
+    derived_from_version: 1.1.3
   - id: plan
     path: plan.md
     version: 1.0.0

@@ -280,3 +280,175 @@ func TestAllowListIntrospection(t *testing.T) {
 		t.Fatal("path allow-list looks incomplete")
 	}
 }
+
+func execCall(binary string, args ...string) Call {
+	return Call{
+		Tool: "kube.exec", Class: ClassReadOnly,
+		Exec: &ExecEffect{
+			Namespace: "middleware", Pod: "redis-0", Container: "redis",
+			Binary: binary, Args: args,
+		},
+	}
+}
+
+// TestGuardAuthorisesExecAsOneEffect is FR-002. An exec must be one effect the
+// guard checks twice, not two effects a caller composes: a caller that
+// authorised only the transport would otherwise compile and run.
+func TestGuardAuthorisesExecAsOneEffect(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	if err := g.Authorize(ctx, execCall("redis-cli", "-h", "10.0.0.1", "INFO", "all")); err != nil {
+		t.Fatalf("an allow-listed read-only command in a pod was refused: %v", err)
+	}
+
+	// Declaring exec alongside another effect must be refused, or the
+	// "exactly one effect" invariant would not hold for the new kind.
+	both := execCall("redis-cli", "INFO")
+	both.HTTP = &HTTPEffect{Method: "GET", URL: "https://k8s/api/v1/namespaces/x/pods/y/exec"}
+	if err := g.Authorize(ctx, both); errs.CodeOf(err) != "MAS-8005" {
+		t.Errorf("two effects in one call: got %v (%s), want MAS-8005", err, errs.CodeOf(err))
+	}
+}
+
+// TestExecRefusesUnlistedBinary is FR-003. The refusal must come from the
+// command allow-list, not from anything about Kubernetes: exec changes where
+// vetted commands run, never which commands are vetted.
+func TestExecRefusesUnlistedBinary(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	for _, binary := range []string{"kubectl", "sh", "bash", "curl", "python3", "rm"} {
+		err := g.Authorize(ctx, execCall(binary, "--help"))
+		if code := errs.CodeOf(err); code != "MAS-8002" {
+			t.Errorf("exec %s: got %v (%s), want MAS-8002 — deny-by-default must not depend on the transport",
+				binary, err, code)
+		}
+	}
+}
+
+// TestExecRefusesMutatingCommand is FR-004: an identical transport must not make
+// a mutating command acceptable.
+func TestExecRefusesMutatingCommand(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		binary string
+		args   []string
+	}{
+		{"redis-cli", []string{"FLUSHALL"}},
+		{"redis-cli", []string{"CONFIG", "SET", "maxmemory", "0"}},
+		{"redis-cli", []string{"--eval", "/tmp/x.lua"}},
+		{"kafka-topics.sh", []string{"--delete", "--topic", "orders"}},
+		{"mongosh", []string{"--eval", "db.dropDatabase()"}},
+	} {
+		err := g.Authorize(ctx, execCall(tc.binary, tc.args...))
+		if err == nil {
+			t.Errorf("exec %s %v was authorised", tc.binary, tc.args)
+			continue
+		}
+		if code := errs.CodeOf(err); !strings.HasPrefix(code, "MAS-80") {
+			t.Errorf("exec %s %v: got %s, want a guard refusal", tc.binary, tc.args, code)
+		}
+	}
+
+	// A mutating class is refused before any effect is examined.
+	mutating := execCall("redis-cli", "INFO")
+	mutating.Class = ClassMutating
+	if err := g.Authorize(ctx, mutating); errs.CodeOf(err) != "MAS-8001" {
+		t.Errorf("a mutating exec: got %v, want MAS-8001", err)
+	}
+}
+
+// TestExecPathComponentsCannotEscape is the subtle one. The exec path rule is a
+// regex over a URL built from namespace, pod and container. If a component
+// could contain a slash or a traversal, the built URL would still match the rule
+// while addressing a different endpoint — the check would look like it worked.
+func TestExecPathComponentsCannotEscape(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name                      string
+		namespace, pod, container string
+	}{
+		{"slash in pod", "middleware", "redis-0/../../secrets", "redis"},
+		{"slash in namespace", "kube-system/pods", "redis-0", "redis"},
+		{"traversal in pod", "middleware", "..", "redis"},
+		{"traversal in container", "middleware", "redis-0", "../etc"},
+		{"empty namespace", "", "redis-0", "redis"},
+		{"uppercase pod", "middleware", "Redis-0", "redis"},
+		{"query injection", "middleware", "redis-0?command=sh", "redis"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := execCall("redis-cli", "INFO")
+			c.Exec.Namespace, c.Exec.Pod, c.Exec.Container = tc.namespace, tc.pod, tc.container
+			err := g.Authorize(ctx, c)
+			if err == nil {
+				t.Fatalf("%s was accepted; the path rule can be escaped", tc.name)
+			}
+			if code := errs.CodeOf(err); !strings.HasPrefix(code, "MAS-80") {
+				t.Errorf("got %s, want a guard refusal", code)
+			}
+		})
+	}
+
+	// An empty container is legitimate: it means the pod's default container.
+	ok := execCall("redis-cli", "INFO")
+	ok.Exec.Container = ""
+	if err := g.Authorize(ctx, ok); err != nil {
+		t.Errorf("an unspecified container must mean the default one: %v", err)
+	}
+}
+
+// TestExecPathRuleMatchesOnlyExec proves the new rule did not widen the read
+// surface: the subresources next to exec must stay refused.
+func TestExecPathRuleMatchesOnlyExec(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	for _, path := range []string{
+		"/api/v1/namespaces/middleware/pods/redis-0/attach",
+		"/api/v1/namespaces/middleware/pods/redis-0/portforward",
+		"/api/v1/namespaces/middleware/pods/redis-0/eviction",
+		"/api/v1/namespaces/middleware/pods/redis-0/exec/extra",
+	} {
+		err := g.Authorize(ctx, Call{
+			Tool: "test", Class: ClassReadOnly,
+			HTTP: &HTTPEffect{Method: "GET", URL: "https://k8s.local" + path},
+		})
+		if err == nil {
+			t.Errorf("%s was authorised; the exec rule must match exec and nothing else", path)
+		}
+	}
+}
+
+// TestExecEndpointUnreachableThroughPlainHTTP is the property the adversarial
+// suite already asserted and this feature had to preserve. The exec subresource
+// stays out of the general path allow-list, so a tool that declares an
+// HTTPEffect against it is refused — the endpoint is reachable only through the
+// effect that also checks the command.
+func TestExecEndpointUnreachableThroughPlainHTTP(t *testing.T) {
+	g := newTestGuard(t)
+	ctx := context.Background()
+
+	err := g.Authorize(ctx, Call{
+		Tool: "sneaky", Class: ClassReadOnly,
+		HTTP: &HTTPEffect{
+			Method: "GET",
+			URL:    "https://k8s:6443/api/v1/namespaces/mw/pods/redis-0/exec?command=sh",
+		},
+	})
+	if errs.CodeOf(err) != "MAS-8003" {
+		t.Fatalf("got %v (%s), want MAS-8003: exec must not be reachable without the command check",
+			err, errs.CodeOf(err))
+	}
+
+	for _, rule := range g.AllowedPaths() {
+		if strings.Contains(rule.Pattern, "exec") {
+			t.Errorf("the exec endpoint appears in the general path allow-list as %q; "+
+				"it must be reachable only through an ExecEffect", rule.Pattern)
+		}
+	}
+}

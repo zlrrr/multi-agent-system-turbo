@@ -687,3 +687,45 @@ func TestRunRecordCarriesTopologyAccounting(t *testing.T) {
 		})
 	}
 }
+
+// TestDoctorReportsExecAvailability is FR-011. "No exec tool" has two very
+// different causes — a policy decision and a missing capability — and an
+// operator who cannot tell them apart goes looking for the wrong problem.
+func TestDoctorReportsExecAvailability(t *testing.T) {
+	for name, tc := range map[string]struct {
+		exec       *bool
+		wantStatus service.CheckStatus
+		wantText   string
+	}{
+		"enabled by default": {nil, service.CheckOK, "available"},
+		"explicitly enabled": {boolPtr(true), service.CheckOK, "available"},
+		"disabled by policy": {boolPtr(false), service.CheckSkip, "MAS-4210"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := newService(t, newStubs(t, 0.5, false), func(c *config.Config) {
+				c.Envs = map[string]config.EnvConfig{
+					"kube": {Type: "kubernetes", APIServer: "https://127.0.0.1:1", Exec: tc.exec},
+				}
+			})
+			rep := svc.Doctor(context.Background())
+			found := false
+			for _, c := range rep {
+				if !strings.Contains(c.Name, "exec") {
+					continue
+				}
+				found = true
+				if c.Status != tc.wantStatus {
+					t.Errorf("status = %q, want %q (%s)", c.Status, tc.wantStatus, c.Detail)
+				}
+				if !strings.Contains(c.Detail, tc.wantText) {
+					t.Errorf("detail %q does not mention %q", c.Detail, tc.wantText)
+				}
+			}
+			if !found {
+				t.Error("doctor said nothing about in-container execution")
+			}
+		})
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }

@@ -119,6 +119,7 @@ llm:
 | `ca_file` | CA 证书路径 |
 | `tls_insecure_skip_verify` | 关闭证书校验。生产环境请勿使用 |
 | `timeout` | 单次请求超时 |
+| `exec` | 设为 `false` 可关闭该环境的容器内检查。只能收紧：缺省或 `true` 表示由护栏的只读白名单逐条判定命令，与在主机上完全一致 |
 
 支持的凭据来源：集群内 ServiceAccount、kubeconfig 中的 bearer token、`tokenFile`、
 客户端证书、basic auth。

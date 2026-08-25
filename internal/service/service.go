@@ -35,7 +35,7 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 
 	// Adapters register themselves.
-	_ "github.com/zlrrr/multi-agent-system-turbo/internal/envadapter/kube"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter/kube"
 	_ "github.com/zlrrr/multi-agent-system-turbo/internal/llm/anthropic"
 	_ "github.com/zlrrr/multi-agent-system-turbo/internal/llm/mock"
 	_ "github.com/zlrrr/multi-agent-system-turbo/internal/llm/openai"
@@ -611,15 +611,32 @@ func (s *Service) registerEnvTools(ctx context.Context, registry *tool.Registry,
 		}}
 	}
 
-	if la, isLocal := adapter.(*local.Adapter); isLocal {
-		if pack, perr := s.library.For(core.MiddlewareKind(t.Kind), t.Version); perr == nil {
+	// A pack's inspection commands are installed on whichever adapter can run
+	// them. The two adapters take the same commands and reach them differently:
+	// the host runs them locally, the cluster runs them inside the pod. Neither
+	// widens what may run — the guard's allow-list decides that in both cases.
+	pack, packErr := s.library.For(core.MiddlewareKind(t.Kind), t.Version)
+	switch a := adapter.(type) {
+	case *local.Adapter:
+		if packErr == nil {
 			var cmds []local.InspectCommand
 			for _, in := range pack.InspectCommands() {
 				cmds = append(cmds, local.InspectCommand{
 					ID: in.ID, Binary: in.Binary, Args: in.Args, Description: in.Description.In("en"),
 				})
 			}
-			la.SetInspectCommands(cmds)
+			a.SetInspectCommands(cmds)
+		}
+	case *kube.Adapter:
+		a.SetExecEnabled(envCfg.ExecEnabled())
+		if packErr == nil {
+			var cmds []kube.InspectCommand
+			for _, in := range pack.InspectCommands() {
+				cmds = append(cmds, kube.InspectCommand{
+					ID: in.ID, Binary: in.Binary, Args: in.Args, Description: in.Description.In("en"),
+				})
+			}
+			a.SetInspectCommands(cmds)
 		}
 	}
 
@@ -636,6 +653,11 @@ func (s *Service) registerEnvTools(ctx context.Context, registry *tool.Registry,
 			Detail: err.Error(),
 			Impact: "instance identities are unknown; evidence is analysed without them",
 		}}
+	}
+	// Exec is bound to what the target resolved to, so this is what stops a run
+	// from reaching a pod outside its own scope (004 design-lld.md §5).
+	if ka, isKube := adapter.(*kube.Adapter); isKube {
+		ka.SetInstances(binding.Namespace, binding.Instances)
 	}
 	return &binding, nil
 }

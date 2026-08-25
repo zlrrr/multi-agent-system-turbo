@@ -11,6 +11,7 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/promql"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter/kube"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter/local"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/llm"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
@@ -135,6 +136,22 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 		} else {
 			add("environment: "+name, CheckOK,
 				fmt.Sprintf("%s reachable, %d tool(s)", s.cfg.Envs[name].Type, len(adapter.Tools())), nil, t0)
+		}
+
+		// In-container execution is reported separately, because "no exec tool"
+		// has two very different causes — a policy decision and a missing
+		// capability — and an operator who cannot tell them apart will go
+		// looking for the wrong problem.
+		if ka, isKube := adapter.(*kube.Adapter); isKube {
+			t0 = time.Now()
+			ka.SetExecEnabled(s.cfg.Envs[name].ExecEnabled())
+			if ok, reason := ka.ExecAvailable(); ok {
+				add("environment: "+name+" · exec", CheckOK,
+					"in-container execution is available; the guard's read-only allow-list "+
+						"still decides every command", nil, t0)
+			} else {
+				add("environment: "+name+" · exec", CheckSkip, reason.Error(), nil, t0)
+			}
 		}
 	}
 

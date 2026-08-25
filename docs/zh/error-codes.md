@@ -67,6 +67,11 @@
 | `MAS-4203` | error | `KubeUnreachable` | Kubernetes API Server 不可达：%s | 检查 API Server 地址、CA 证书与网络策略。 |
 | `MAS-4204` | warn | `KubeNotFound` | Kubernetes 对象不存在：%s | 检查目标定义中的命名空间与选择器。 |
 | `MAS-4205` | error | `KubeMalformed` | Kubernetes API 返回了格式错误的响应：%s | 确认该 URL 指向 Kubernetes API Server。 |
+| `MAS-4210` | warn | `KubeExecDisabled` | 环境 %q 已关闭容器内执行 | 将 `envs.<name>.exec` 设为 true（或直接删除该键），即可交由护栏按命令判定。该开关只能收紧，绝不会放宽护栏允许的范围。 |
+| `MAS-4211` | error | `KubeExecPodNotInTarget` | Pod %q 不是目标 %q 的实例 | exec 被绑定在目标解析出的实例集合上，因此一次运行永远无法触及集合之外的 Pod。请检查该目标的选择器。 |
+| `MAS-4212` | warn | `KubeExecUpgradeFailed` | 无法与 %s 建立远程命令流：%s | 通常是 RBAC 问题：该凭据需要对 `pods/exec` 具备 `create` 权限。也可能是 Pod 已消失，或准入策略禁止 exec。 |
+| `MAS-4213` | error | `KubeExecStreamMalformed` | 来自 %s 的远程命令流格式错误：%s | apiserver 或中间设备并未遵循 v4.channel.k8s.io 协议。请检查是否有代理改写了 WebSocket 流量。 |
+| `MAS-4214` | warn | `KubeExecNoExitStatus` | %s 中的命令结束时未报告退出状态 | 其输出会被照常报告，但状态记为未知。它不会被当作成功：一条结果从未到达的命令，并不能被认为已经成功。 |
 | `MAS-4301` | warn | `HostCommandFailed` | 主机命令 %q 执行失败：%s | 确认该命令存在，且当前进程有权执行它。 |
 | `MAS-4302` | warn | `HostBinaryNotFound` | PATH 中未找到可执行文件 %q | 在镜像或主机上安装该工具，或跳过依赖它的检查。 |
 | `MAS-4303` | warn | `HostUnsupported` | 主机巡检 %q 在 %s 上不受支持 | 该检查将被跳过；它仅在 Linux 主机上可用。 |

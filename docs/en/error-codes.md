@@ -68,6 +68,11 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-4203` | error | `KubeUnreachable` | Kubernetes API server is unreachable: %s | Check the server URL, CA bundle and network policy. |
 | `MAS-4204` | warn | `KubeNotFound` | Kubernetes object not found: %s | Check the namespace and selector on the target definition. |
 | `MAS-4205` | error | `KubeMalformed` | Kubernetes API returned a malformed response: %s | Confirm the URL points at a Kubernetes API server. |
+| `MAS-4210` | warn | `KubeExecDisabled` | in-container execution is disabled for environment %q | Set `envs.<name>.exec: true` (or remove the key) to let the guard decide per command. The switch can only narrow: it never widens what the guard allows. |
+| `MAS-4211` | error | `KubeExecPodNotInTarget` | pod %q is not an instance of target %q | Exec is bound to the instances the target resolved to, so a run can never reach a pod outside it. Check the target's selector. |
+| `MAS-4212` | warn | `KubeExecUpgradeFailed` | could not open a remote-command stream to %s: %s | Usually RBAC: the credential needs `create` on `pods/exec`. It can also mean the pod is gone or an admission policy forbids exec. |
+| `MAS-4213` | error | `KubeExecStreamMalformed` | the remote-command stream from %s was malformed: %s | The apiserver or an intermediary did not speak the v4.channel.k8s.io protocol. Check for a proxy that rewrites WebSocket traffic. |
+| `MAS-4214` | warn | `KubeExecNoExitStatus` | the command in %s ended without reporting an exit status | The output is reported with its status recorded as unknown. It is not treated as success: a command whose outcome never arrived has not been shown to have worked. |
 | `MAS-4301` | warn | `HostCommandFailed` | host command %q failed: %s | Check that the command exists and the process has permission to run it. |
 | `MAS-4302` | warn | `HostBinaryNotFound` | binary %q not found on PATH | Install the tool in the image or on the host, or omit checks that need it. |
 | `MAS-4303` | warn | `HostUnsupported` | host inspection %q is not supported on %s | This check is skipped; it is available on Linux hosts. |

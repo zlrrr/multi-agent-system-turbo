@@ -176,6 +176,15 @@ exactly that: `obclient` is a full SQL client, and the guard cannot tell a
 `SELECT` from a `DELETE` inside a `-e` argument. Metrics and logs still cover
 the failure modes; the gap is recorded rather than papered over.
 
+An inspect command runs in one of two places, and you write it once for both:
+on a host, the local adapter runs it directly; in Kubernetes, it runs inside the
+pod. Write the template as a client on the same machine as the server —
+`{{.host}}` becomes the loopback address in a container, and a `{{.port}}` whose
+value is unknown there is dropped along with the flag that introduced it, so the
+command falls back to the client's own default. Both paths go through the same
+allow-list, so a command that runs on a host runs in a pod and one that is
+refused on a host is refused in a pod.
+
 ### 2.6 `source` — where the code is
 
 ```yaml

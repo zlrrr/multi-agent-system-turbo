@@ -99,7 +99,7 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 |---|---|
 | **Middleware** | Redis, Kafka, MongoDB, Pulsar, Milvus and OceanBase knowledge packs ship. Anything else is pack-only work: see the [pack-authoring guide](./docs/en/knowledge-packs.md) — no Go change, no rebuild |
 | **Telemetry** | Prometheus, VictoriaMetrics, Thanos, Mimir; Loki |
-| **Environments** | Kubernetes (read-only API); local host |
+| **Environments** | Kubernetes (read-only API, plus opt-out in-container inspection); local host |
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |
 | **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock |
 | **Topologies** | `supervisor` (default), `single` (control condition), `plan-execute` (adaptive), `debate` (adversarial), `blackboard` (data-driven) |

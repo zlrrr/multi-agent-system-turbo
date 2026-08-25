@@ -363,16 +363,54 @@ rules:
     verbs: ["get", "list"]
 ```
 
-没有 `create`、`update`、`patch`、`delete`，也没有 `pods/exec`。如果你哪天看到 MAS-Turbo
+对任何资源都没有 `create`、`update`、`patch`、`delete`。如果你哪天看到 MAS-Turbo
 请求其中任何一项，那是一个值得上报的缺陷。
+
+### 容器内检查（可选）
+
+要读取中间件自身的诊断信息 —— `redis-cli INFO all`、
+`mongosh --eval "rs.status()"` —— 就意味着要在其容器内执行命令，
+而在 Kubernetes 中这需要多一项权限：
+
+```yaml
+  # 可选。只有当你希望启用容器内检查时才授予。
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+```
+
+这是一次**真实的放宽**，此处直说而不藏着掖着：`pods/exec` 让持有者能在该角色覆盖的
+**任意** Pod 中执行**任意**命令。真正约束 MAS-Turbo 的不是这条 RBAC 规则，而是它自身的护栏；
+而这个约束由四件互相独立的事构成，其中没有任何一件能被配置或提示词放宽：
+
+| 边界 | 由什么设定 |
+|---|---|
+| 哪些二进制 | 只读命令白名单 —— `redis-cli`、`mongosh`、`kafka-*.sh` 等，别无其他 |
+| 哪些参数 | 变更性动词识别与按 flag 的取值白名单：`INFO` 能跑，`FLUSHALL` 不能 |
+| 哪些 Pod | 只有你所指定目标解析出的那些 Pod |
+| 哪个端点 | 只有 exec 子资源；代码在结构上无法访问别处 |
+
+**exec 改变的是"受审核命令能在哪里执行"，绝不改变"哪些命令通过了审核"。**
+`kubectl` 不在白名单里，将来也不会加入：一个二进制名会把整个 Kubernetes API 塞进白名单，
+而这正是"默认拒绝"要防的事。
+
+如果你的策略无论命令是什么都禁止 exec，那就关掉它，并且什么权限都不必授予：
+
+```yaml
+envs:
+  prod:
+    type: kubernetes
+    exec: false
+```
+
+此时该工具根本不会被注册，因此无论提示词怎么写都无法被调用。
+`mas doctor` 会把它报告为一项策略决定（`MAS-4210`），而不是一项缺失的能力 ——
+这样就不会有人为了别人有意设置的一个开关，花一下午去排查 RBAC。
 
 ## 14. 当前明确尚未提供的能力
 
 如实说明范围，方便你据此规划：
 
-- **容器内命令执行**（在 Pod 内执行 Redis `INFO`）—— 本地主机适配器今天已支持；
-  Kubernetes 的 `exec` 路径是下一个里程碑。
-- **更多拓扑**（`plan-execute`、`debate`、`blackboard`）—— 注册表已就绪。
 - **API 认证** —— 暂时不要把 API 暴露到可信网络之外。
 - **Web UI** —— 当前只有 CLI 与 API。
 
