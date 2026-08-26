@@ -1,0 +1,50 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: pulsar-subscription-backlog
+  middleware: pulsar
+  version: "3.2.0"
+  title:
+    en: "Subscription backlog grows while consumers stay attached"
+    zh: "订阅积压持续增长，而消费者仍保持连接"
+  description:
+    en: >-
+      The backlog went from eight hundred to nineteen thousand five hundred
+      while the publish rate held steady and the dispatch rate collapsed. The
+      answer is the backlog itself. Three consumers stayed attached throughout,
+      which is what rules out consumer-stall — the mode that looks identical on
+      a backlog graph alone and has a completely different remedy. Every bookie
+      reported writable, so storage is not the constraint either: the messages
+      are being stored fine, they are not being consumed.
+    zh: >-
+      积压从 800 增长到 19500，其间发布速率保持稳定，而投递速率骤降。
+      正确答案就是积压本身。三个消费者全程保持连接，
+      这正是排除 consumer-stall 的依据 —— 该模式仅看积压曲线时与本例完全相同，
+      处理方式却截然不同。所有 bookie 都报告可写，因此存储也不是瓶颈：
+      消息写入没有问题，只是没有被消费掉。
+
+symptom:
+  en: "subscription backlog keeps growing while consumers stay connected"
+  zh: "订阅积压持续增长，消费者却一直连着"
+
+telemetry:
+  metrics:
+    pulsar_subscription_back_log: [800, 4200, 19500]
+    pulsar_rate_in: [1200, 1250, 1240]
+    pulsar_rate_out: [1150, 400, 90]
+    pulsar_consumers_count: [3, 3, 3]
+    pulsar_producers_count: [8, 8, 8]
+    pulsar_topics_count: [128, 128, 129]
+    pulsar_storage_size: [4200000, 4900000, 6100000]
+    bookie_SERVER_STATUS: [1, 1, 1]
+    # `up` is the pulsar pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[persistent://public/default/orders] Subscription orders-sub backlog is 19500 entries"
+    - "[persistent://public/default/orders] Dispatcher rate limit not configured, dispatching on demand"
+    - "[orders-sub] Consumer acknowledgement rate dropped below dispatch rate"
+
+expect:
+  failure_modes: [subscription-backlog]
+  not_failure_modes: [consumer-stall, bookie-storage-pressure]

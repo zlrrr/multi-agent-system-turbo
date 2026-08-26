@@ -1,6 +1,6 @@
 # Low-Level Design (LLD): MVP Core
 
-> **Feature ID**: `001-mvp-core` · **Version**: 1.0.5 · **Status**: approved
+> **Feature ID**: `001-mvp-core` · **Version**: 1.0.6 · **Status**: approved
 > **Bilingual pair**: [`design-lld.zh.md`](./design-lld.zh.md) · **Upstream**: [`design-hld.md`](./design-hld.md) v1.0.0 · **Downstream**: [`tasks.md`](./tasks.md), code
 
 Module path: `github.com/zlrrr/multi-agent-system-turbo`
@@ -630,6 +630,23 @@ the target, pack summary, prior findings and evidence digests — never with raw
 - **Tests**: each role against the mock provider with a scripted transcript; budget
   enforcement; invalid tool call ⇒ bounded repair then gap; hypotheses always carry evidence
   IDs (structural quality assertion for RSK-007).
+
+**Amendment 1.0.6 — a source that is down is a gap at admission, not on use.**
+`registerTelemetryTools` installed the collectors and said nothing about whether
+they could answer. A gap was recorded only when some caller's query failed, so
+"the logs were unavailable" was a fact about which agent happened to run rather
+than about the deployment: the case corpus (feature 006) put the same incident
+through five topologies with Loki returning 503, and `supervisor` declared the
+missing logs while `single` did not — same deployment, same evidence, two
+different stories about how much of it was seen.
+
+Each configured source is now probed once at admission and a failure becomes a
+`GapUnavailable` carrying the collector's own code and an impact line. The tools
+are still registered either way: a source that is down at admission may recover
+mid-run, and withholding the tool would turn a transient outage into a whole run
+without metrics. `TestDownSourceIsAGapUnderEveryTopology` pins it across all
+five topologies, and `internal/eval/cases/redis-logs-unavailable.yaml` is the
+case that found it.
 
 **Amendment 1.0.5 — `sddctl verify` now checks that declared tests exist.**
 The gap above was not found by the verifier, which is the point: coverage

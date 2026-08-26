@@ -1,7 +1,7 @@
 # MAS-Turbo 用户手册
 
 > **双语对应文件**：[`../en/user-manual.md`](../en/user-manual.md)
-> 适用于 MAS-Turbo 0.1.x · 另见：[配置参考](./configuration.md) · [错误码参考](./error-codes.md)
+> 适用于 MAS-Turbo 0.1.x · 另见：[配置参考](./configuration.md) · [评测指南](./evaluation.md) · [错误码参考](./error-codes.md)
 
 ---
 
@@ -246,8 +246,36 @@ jq -r '[.topology, (.usage.llm_calls|tostring), (.usage.tool_calls|tostring),
         (.usage.wall_millis|tostring), .hypotheses[0].statement] | @tsv' runs/*.json
 ```
 
-本项目只做拓扑之间的**对比**，不做**打分**。要宣布赢家，需要一个带已知根因的
-case 语料库，那是另一项工作 —— 因此上面的成本数字是测量结果，而结论由你来判断。
+上面的成本数字是测量结果，而在你自己故障上的结论由你来判断。
+若需要一次可重复的对比，`mas eval` 会运行一个根因已知的 case 语料库。
+
+### 用已知原因的 case 来度量
+
+```bash
+mas eval             # 内置语料库，你配置的拓扑
+mas eval --matrix    # 全部拓扑，同一批 case
+```
+
+每个 case 携带合成遥测数据，以及一次正确诊断应当得出的故障模式。
+整条流水线都会真实跑起来，因此被度量的是你实际运行的系统，
+而不是它的桩化版本。
+
+```
+CASE                                 TOPOLOGY    RESULT  FALSE  GAPS  CALLS  COST
+kafka-broker-loss-under-replicated   supervisor  hit     0      ok    8      unpriced
+
+supervisor     7/7 hit · 0 miss · 0 false conclusion(s) · 0 gap(s) missed
+```
+
+四类结果并排呈现，**绝不合并为单一分数**：漏判让你留在原地，
+错误结论则自信地把你送错方向；任何加权求和，
+都会让“用漏判换错误结论”的改动看起来像是进步。
+
+语料库是合成的 —— 它度量的是与其自身标签的一致程度，
+而不是在真实故障上的准确率 —— 每一种输出形式都会明说这一点。
+只要有 case 漏判或得出被排除的结论，退出码即非零，
+这正是它可以直接用作 CI 闸门的原因。用 `--cases` 指向一个目录即可加入你自己的 case；
+[评测指南](./evaluation.md) 里有格式与其背后的取舍。
 
 ### 一次运行花了多少，又是谁花的
 

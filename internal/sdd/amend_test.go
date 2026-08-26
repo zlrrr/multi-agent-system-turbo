@@ -87,8 +87,10 @@ func TestVerifyRejectsADeclaredTestThatDoesNotExist(t *testing.T) {
 		}
 	}
 	write("spec.md", "# Spec\n\n> **Version**: 1.0.0\n\n| ID | Requirement |\n|---|---|\n| FR-001 | do it |\n")
-	write("tasks.md", "# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test |\n|---|---|---|---|\n"+
-		"| T001 | build it | FR-001 | `TestThatWasNeverWritten` |\n")
+	// The row claims completion: that is what makes the missing test a defect
+	// rather than a plan.
+	write("tasks.md", "# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test | Status |\n|---|---|---|---|---|\n"+
+		"| T001 | build it | FR-001 | `TestThatWasNeverWritten` | done |\n")
 
 	rep, err := Verify(root)
 	if err != nil {
@@ -122,8 +124,8 @@ func TestVerifyAcceptsProseCheckpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tasks.md"),
-		[]byte("# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test |\n|---|---|---|---|\n"+
-			"| T001 | build it | FR-001 | smoke test per subcommand; `make ci` green |\n"), 0o600); err != nil {
+		[]byte("# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test | Status |\n|---|---|---|---|---|\n"+
+			"| T001 | build it | FR-001 | smoke test per subcommand; `make ci` green | done |\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,5 +137,53 @@ func TestVerifyAcceptsProseCheckpoints(t *testing.T) {
 		if f.Check == "tests" {
 			t.Errorf("a prose checkpoint was reported as a missing test: %s", f.Message)
 		}
+	}
+}
+
+// TestVerifyChecksDeclaredTestsOnlyWhenDone draws the line the check depends
+// on. A task still `todo` naming the test it will need is test-first working as
+// intended; flagging it would push authors to write the table after the code,
+// which is the habit the whole chain exists to break. A row marked `done` whose
+// test does not exist is the defect.
+func TestVerifyChecksDeclaredTestsOnlyWhenDone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status      string
+		wantFinding bool
+	}{
+		"planned work names its future test": {"todo", false},
+		"work in progress":                   {"doing", false},
+		"completion claimed without a test":  {"done", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "specs", "001-sample")
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "spec.md"),
+				[]byte("# Spec\n\n> **Version**: 1.0.0\n\n| ID | Requirement |\n|---|---|\n| FR-001 | do it |\n"),
+				0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "tasks.md"),
+				[]byte("# Tasks\n\n> **Version**: 1.0.0\n\n| ID | Task | Satisfies | Test | Status |\n|---|---|---|---|---|\n"+
+					"| T001 | build it | FR-001 | `TestNotWrittenYet` | "+tc.status+" |\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			rep, err := Verify(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found bool
+			for _, f := range rep.Findings {
+				if f.Check == "tests" {
+					found = true
+				}
+			}
+			if found != tc.wantFinding {
+				t.Errorf("finding = %v, want %v (status %q)", found, tc.wantFinding, tc.status)
+			}
+		})
 	}
 }

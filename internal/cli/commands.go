@@ -14,7 +14,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/eval"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/httpapi"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/knowledge"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/llm"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/report"
@@ -860,4 +862,79 @@ func unique(in []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// newEvalCmd runs the diagnostic case corpus.
+//
+// Its output is four numbers kept apart — concluded, missed, wrongly concluded,
+// gaps not declared — and never a single score. A weighted sum would let a
+// change that trades a miss for a confident wrong answer look like an
+// improvement, and that is exactly the trade a model makes when it is pushed to
+// be more decisive (specs/006-eval-harness/design-hld.md §3).
+func newEvalCmd(e *env) *cobra.Command {
+	var (
+		matrix   bool
+		asJSON   bool
+		caseDirs []string
+		topology string
+	)
+	cmd := &cobra.Command{
+		Use:   "eval",
+		Short: "Run the diagnostic case corpus and report what was concluded, missed and wrongly concluded",
+		Long: `Each case carries synthetic telemetry and the failure modes a correct diagnosis
+reaches. The whole pipeline runs against it — the same entry point 'mas diagnose'
+uses, over real HTTP to stub metric and log servers — so query construction, the
+safety guard's verdict, decoding and the rule engine are all exercised rather
+than mocked away.
+
+The corpus is synthetic. It measures agreement with its own labels, not accuracy
+on real incidents, and the caveats printed under the table say so every time.
+
+The exit status is non-zero when any case missed or reached a conclusion the case
+rules out, which is what makes this usable as a CI gate.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := e.loadConfig()
+			if err != nil {
+				return err
+			}
+			lib, err := knowledge.LoadDefault(cfg.Knowledge.PackDirs)
+			if err != nil {
+				return err
+			}
+			corpus, err := eval.LoadCorpus(lib, caseDirs)
+			if err != nil {
+				return err
+			}
+
+			topologies := []string{topology}
+			switch {
+			case matrix:
+				topologies = orchestrator.Names()
+			case topology == "":
+				topologies = []string{cfg.Run.DefaultTopology}
+			}
+
+			lang := cfg.Run.Language
+			summary := eval.NewRunner(lib).Matrix(cmd.Context(), corpus.Cases(), topologies,
+				eval.Options{Language: lang, LLM: cfg.LLM})
+
+			render := eval.Render
+			if asJSON {
+				render = eval.RenderJSON
+			}
+			if err := render(e.out, summary, lang); err != nil {
+				return err
+			}
+
+			// Returned rather than printed: the exit status is the gate, and a
+			// regression that only appeared in the table would be a gate that
+			// lets everything through.
+			return summary.Regression()
+		},
+	}
+	cmd.Flags().BoolVar(&matrix, "matrix", false, "run every topology, not just one")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
+	cmd.Flags().StringVar(&topology, "topology", "", "run one named topology (default: run.default_topology)")
+	cmd.Flags().StringSliceVar(&caseDirs, "cases", nil, "directories of additional cases, alongside the shipped corpus")
+	return cmd
 }

@@ -146,17 +146,27 @@ func checkDeclaredTests(root string, r *Report) error {
 		if err != nil {
 			continue
 		}
+		// Only rows claiming completion are checked. A task still `todo` is a
+		// plan, and a plan naming the test it will need is exactly what
+		// test-first means — flagging it would push authors to write the table
+		// after the code, which is the habit this whole chain exists to break.
+		// A row marked `done` whose test does not exist is the defect.
 		var missing []string
 		seen := map[string]bool{}
-		for _, m := range declaredTest.FindAllSubmatch(body, -1) {
-			name := string(m[1])
-			if seen[name] {
+		for _, line := range strings.Split(string(body), "\n") {
+			if !claimsDone(line) {
 				continue
 			}
-			seen[name] = true
-			r.Checked["tests"]++
-			if !existing[name] {
-				missing = append(missing, name)
+			for _, m := range declaredTest.FindAllStringSubmatch(line, -1) {
+				name := m[1]
+				if seen[name] {
+					continue
+				}
+				seen[name] = true
+				r.Checked["tests"]++
+				if !existing[name] {
+					missing = append(missing, name)
+				}
 			}
 		}
 		if len(missing) > 0 {
@@ -170,6 +180,21 @@ func checkDeclaredTests(root string, r *Report) error {
 		}
 	}
 	return nil
+}
+
+// claimsDone reports whether a task-table row states the task is done. The
+// status is a cell of its own, so a row mentioning the word in prose does not
+// count.
+func claimsDone(line string) bool {
+	if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+		return false
+	}
+	for _, cell := range strings.Split(line, "|") {
+		if strings.EqualFold(strings.TrimSpace(cell), "done") {
+			return true
+		}
+	}
+	return false
 }
 
 // goTestNames collects every test function defined in the repository.

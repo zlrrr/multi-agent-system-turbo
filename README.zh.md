@@ -2,7 +2,7 @@
 
 **面向开源中间件的只读诊断型多 Agent 系统。**
 
-[English](./README.md) · [用户手册](./docs/zh/user-manual.md) · [配置参考](./docs/zh/configuration.md) · [知识包编写](./docs/zh/knowledge-packs.md) · [错误码](./docs/zh/error-codes.md)
+[English](./README.md) · [用户手册](./docs/zh/user-manual.md) · [配置参考](./docs/zh/configuration.md) · [知识包编写](./docs/zh/knowledge-packs.md) · [评测指南](./docs/zh/evaluation.md) · [错误码](./docs/zh/error-codes.md)
 
 ---
 
@@ -111,16 +111,21 @@ mas diagnose --target redis-prod --symptom "p99 延迟毛刺" --since 1h
 for t in single supervisor plan-execute debate blackboard; do
   mas diagnose -t redis-prod -s "延迟毛刺" --topology "$t" -f json -o "$t.json"
 done
+
+# 运行根因已知的 case 语料库；出现回归时退出码非零
+mas eval --matrix
 ```
 
-配置、RBAC、API 与知识包编写详见[用户手册](./docs/zh/user-manual.md)。
+配置、RBAC、API 与知识包编写详见[用户手册](./docs/zh/user-manual.md)；
+`mas eval` 度量什么、以及如何编写自己的 case，详见[评测指南](./docs/zh/evaluation.md)。
 
 ## 开发
 
 ```bash
 make build          # 产出 bin/mas 与 bin/sddctl
 make test           # 完整测试套件；任何测试都不需要网络
-make ci             # CI 强制的全部内容：fmt、vet、lint、race 测试、SDD 校验、构建
+make ci             # CI 强制的全部内容：fmt、vet、lint、race 测试、SDD 校验、构建、语料库
+make eval           # 诊断 case 语料库；出现回归时退出码非零
 make sdd-verify     # 双语对等、级联新鲜度、需求覆盖、所声明的测试
 make docker         # 容器镜像
 ```

@@ -1,7 +1,7 @@
 # MAS-Turbo User Manual
 
 > **Bilingual pair**: [`../zh/user-manual.md`](../zh/user-manual.md)
-> Applies to MAS-Turbo 0.1.x · See also: [configuration](./configuration.md) · [error codes](./error-codes.md)
+> Applies to MAS-Turbo 0.1.x · See also: [configuration](./configuration.md) · [evaluation](./evaluation.md) · [error codes](./error-codes.md)
 
 ---
 
@@ -275,9 +275,38 @@ jq -r '[.topology, (.usage.llm_calls|tostring), (.usage.tool_calls|tostring),
         (.usage.wall_millis|tostring), .hypotheses[0].statement] | @tsv' runs/*.json
 ```
 
-This project compares topologies; it does not score them. Declaring a winner
-would need a corpus of cases with known causes, which is separate work — so the
-cost figures above are measurements and the conclusions are yours to judge.
+The cost figures above are measurements; the conclusions on your own incidents
+are yours to judge. For a repeatable comparison, `mas eval` runs a corpus of
+cases whose causes are known.
+
+### Measuring against cases with known causes
+
+```bash
+mas eval             # the shipped corpus, your configured topology
+mas eval --matrix    # every topology, the same cases
+```
+
+Each case carries synthetic telemetry and the failure modes a correct diagnosis
+reaches. The whole pipeline runs against it, so what is measured is the system
+you actually run rather than a stubbed version of it.
+
+```
+CASE                                 TOPOLOGY    RESULT  FALSE  GAPS  CALLS  COST
+kafka-broker-loss-under-replicated   supervisor  hit     0      ok    8      unpriced
+
+supervisor     7/7 hit · 0 miss · 0 false conclusion(s) · 0 gap(s) missed
+```
+
+Four outcomes are reported side by side and **never combined into one score**: a
+miss leaves you where you started, a false conclusion sends you somewhere wrong
+with confidence, and any weighted sum would let a change that trades the first
+for the second look like an improvement.
+
+The corpus is synthetic — it measures agreement with its own labels, not
+accuracy on real incidents — and every rendering says so. The exit status is
+non-zero when a case misses or reaches a ruled-out conclusion, which is what
+makes it usable as a CI gate. Point `--cases` at a directory to add your own;
+[the evaluation guide](./evaluation.md) is the format and the reasoning.
 
 ### What a run cost, and who spent it
 

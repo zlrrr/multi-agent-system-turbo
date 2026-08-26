@@ -133,3 +133,8 @@
 |---|---|---|---|---|
 | `MAS-9001` | error | `InvariantViolated` | 内部不变量被破坏：%s | 这是缺陷；请附带运行记录反馈给我们。 |
 | `MAS-9002` | error | `Unexpected` | 未预期的内部错误：%s | 这是缺陷；请附带运行记录反馈给我们。 |
+| `MAS-9100` | error | `CaseMalformed` | 诊断 case %s 格式错误：%s | case 需要声明遥测数据与一次正确诊断应得出的结果，且两种语言都要有。参见 docs/zh/evaluation.md。 |
+| `MAS-9101` | error | `CaseModeUndeclared` | 诊断 case %s 期望故障模式 %q，而知识包 %s 并未声明它 | case 只能断言该知识包有能力得出的结论；否则它会永远失败且毫无信息量。请用 `mas packs --show` 核对模式 id。 |
+| `MAS-9102` | error | `CaseNoPack` | 诊断 case 指向的中间件 %q 没有对应的知识包 | 为该中间件提供知识包，或让该 case 指向一个已存在的中间件。 |
+| `MAS-9103` | error | `CorpusRegressed` | 语料库出现回归：%d 个 case 漏判，%d 个得出了该 case 明确排除的结论 | 执行 `mas eval` 查看具体是哪些。漏判与错误结论是两种不同的失败：前者让运维人员留在原地，后者自信地把他们送错方向。 |
+| `MAS-9104` | error | `CaseDirUnreadable` | case 目录 %s 无法读取：%s | 若不报错，写错的 --cases 路径会去跑内置语料库并报告成功 —— 这正是绝不能被意外产生的结果。 |

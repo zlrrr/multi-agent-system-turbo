@@ -500,3 +500,115 @@ func TestModelsCommandShowsEffectiveRouting(t *testing.T) {
 		}
 	}
 }
+
+// TestEvalCommand is T534. Three things have to hold at once for `mas eval` to
+// be usable as a CI gate: it runs the shipped corpus, it says what the numbers
+// do not mean in the operator's own language, and a regression leaves a
+// non-zero exit status behind rather than a green build with a sad table in it.
+func TestEvalCommand(t *testing.T) {
+	h := newHarness(t)
+
+	out, _, code := h.run("eval")
+	if code != 0 {
+		t.Fatalf("the shipped corpus should pass, got exit %d:\n%s", code, out)
+	}
+	for _, want := range []string{"supervisor", "hit", "synthetic", "replays a script"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("English output is missing %q:\n%s", want, out)
+		}
+	}
+
+	// The caveats are the point of the command's honesty, so they must reach an
+	// operator who reads Chinese as well as one who reads English.
+	zh, _, code := h.run("eval", "--lang", "zh")
+	if code != 0 {
+		t.Fatalf("exit %d in Chinese:\n%s", code, zh)
+	}
+	if !strings.Contains(zh, "合成") || !strings.Contains(zh, "重放") {
+		t.Errorf("Chinese output carries no caveats:\n%s", zh)
+	}
+
+	// JSON carries them as fields, so an integration cannot format them away.
+	raw, _, code := h.run("eval", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d for --json:\n%s", code, raw)
+	}
+	var decoded struct {
+		Caveats  []string `json:"caveats"`
+		Outcomes []struct {
+			Case      string   `json:"case"`
+			Topology  string   `json:"topology"`
+			Concluded []string `json:"concluded"`
+		} `json:"outcomes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("--json did not produce JSON: %v\n%s", err, raw)
+	}
+	if len(decoded.Caveats) == 0 || len(decoded.Outcomes) == 0 {
+		t.Fatalf("JSON is missing caveats or outcomes:\n%s", raw)
+	}
+
+	// --matrix runs every topology against the same cases, which is the whole
+	// reason the topologies share one contract.
+	m, _, code := h.run("eval", "--matrix")
+	if code != 0 {
+		t.Fatalf("exit %d for --matrix:\n%s", code, m)
+	}
+	for _, topology := range []string{"single", "supervisor", "debate", "plan-execute", "blackboard"} {
+		if !strings.Contains(m, topology) {
+			t.Errorf("--matrix did not run %s:\n%s", topology, m)
+		}
+	}
+}
+
+// TestEvalExitsNonZeroOnRegression is the other half of T534: a gate that
+// reports a regression in its table and exits zero is not a gate.
+func TestEvalExitsNonZeroOnRegression(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+
+	// Healthy telemetry, but the case insists memory pressure is the answer. It
+	// is a case that is simply wrong about its own deployment — which is what a
+	// regression looks like from the harness's side.
+	body := `apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: cli-regression-probe
+  middleware: redis
+  version: "7.2.4"
+  title: { en: "Healthy redis labelled as out of memory", zh: "健康的 redis 被标注为内存耗尽" }
+  description:
+    en: "Every reading is healthy, so the expected conclusion is never reached and the run must fail."
+    zh: "所有读数都健康，因此期望的结论不会被得出，本次运行必须失败。"
+symptom: { en: "memory pressure", zh: "内存压力" }
+telemetry:
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_memory_used_bytes: [100, 101, 102]
+    redis_memory_max_bytes: [1000, 1000, 1000]
+  logs: ["OK"]
+expect:
+  failure_modes: [memory-pressure]
+`
+	path := filepath.Join(dir, "regression.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, code := h.run("eval", "--cases", dir)
+	if code == 0 {
+		t.Fatalf("a missed conclusion exited zero:\n%s", out)
+	}
+	if !strings.Contains(errOut, "MAS-9103") {
+		t.Errorf("the regression carried no error code:\n%s", errOut)
+	}
+	if !strings.Contains(out, "cli-regression-probe") || !strings.Contains(out, "memory-pressure") {
+		t.Errorf("the table did not name the case or what it missed:\n%s", out)
+	}
+
+	// A mistyped directory must not quietly run the shipped corpus and pass.
+	_, errOut, code = h.run("eval", "--cases", filepath.Join(dir, "no-such-dir"))
+	if code == 0 || !strings.Contains(errOut, "MAS-9104") {
+		t.Errorf("a missing case directory exited %d with %q", code, errOut)
+	}
+}

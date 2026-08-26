@@ -1,6 +1,6 @@
 # 详细设计（LLD）：MVP 内核
 
-> **特性 ID**：`001-mvp-core` · **版本**：1.0.5 · **状态**：已批准
+> **特性 ID**：`001-mvp-core` · **版本**：1.0.6 · **状态**：已批准
 > **双语对应文件**：[`design-lld.md`](./design-lld.md) · **上游**：[`design-hld.zh.md`](./design-hld.zh.md) v1.0.0 · **下游**：[`tasks.zh.md`](./tasks.zh.md)、代码
 
 模块路径：`github.com/zlrrr/multi-agent-system-turbo`
@@ -614,6 +614,21 @@ type Agent interface {
 
 - **测试**：每个角色对着带脚本的 mock provider；预算强制；非法工具调用 ⇒ 有界修复后记 Gap；
   假设始终携带证据 ID（针对 RSK-007 的结构性质量断言）。
+
+**修订 1.0.6 —— 数据源不可用是准入阶段的缺口，而不是使用时才发现的缺口。**
+`registerTelemetryTools` 过去只负责安装采集器，对它们能否应答只字不提。
+只有当某个调用方的查询失败时才会记录缺口，于是"日志不可用"变成了一件
+关于"恰好是哪个智能体跑了"的事实，而不是关于该部署本身的事实：
+case 语料库（特性 006）让同一次故障在 Loki 持续返回 503 的情况下跑过五种拓扑，
+`supervisor` 声明了日志缺失，`single` 却没有 —— 同一个部署、同一批证据，
+关于"到底看到了多少证据"却讲出了两个不同的故事。
+
+现在，每个已配置的数据源都会在准入阶段被探测一次，失败即成为一个
+`GapUnavailable`，并携带采集器自身的错误码与影响说明。
+两种情况下工具都照常注册：准入时不可用的数据源可能在运行途中恢复，
+若因此扣下工具，一次短暂抖动就会变成一整次没有指标的运行。
+`TestDownSourceIsAGapUnderEveryTopology` 在全部五种拓扑上钉住了这一行为，
+而 `internal/eval/cases/redis-logs-unavailable.yaml` 就是发现它的那个 case。
 
 **修订 1.0.5 —— `sddctl verify` 现在会检查所声明的测试是否存在。**
 上面那个缺口并不是被验证器发现的 —— 而这正是要点：覆盖检查问的是"某条需求是否被某个任务认领"，

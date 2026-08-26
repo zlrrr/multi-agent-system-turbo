@@ -1,0 +1,45 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: redis-logs-unavailable
+  middleware: redis
+  version: "7.2.4"
+  title:
+    en: "Memory at the limit, with the log source down"
+    zh: "内存已到上限，同时日志数据源不可用"
+  description:
+    en: >-
+      The metrics say the same thing they say in redis-maxmemory-eviction, but
+      Loki is returning 503 for the whole window. This case tests honesty rather
+      than only correctness: the conclusion must still be reached from what is
+      available, and the run must also declare that the logs were not. A
+      diagnosis that reached the same answer without ever mentioning the missing
+      source would have got there by luck, and would tell an operator nothing
+      about how much of the evidence it actually saw.
+    zh: >-
+      指标给出的结论与 redis-maxmemory-eviction 相同，但整个时间窗内 Loki 都在返回 503。
+      本用例检验的是诚实而不仅仅是正确：结论仍必须从可获得的证据中得出，
+      同时本次运行还必须声明日志缺失。一次得出了相同答案却从未提及数据源缺失的诊断，
+      是靠运气到达终点的，而且不会让运维人员知道它究竟看到了多少证据。
+
+symptom:
+  en: "used memory has reached the configured maxmemory"
+  zh: "已用内存已达到配置的 maxmemory"
+
+telemetry:
+  withhold: [logs]
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_memory_used_bytes: [940, 970, 990]
+    redis_memory_max_bytes: [1000, 1000, 1000]
+    redis_memory_used_rss_bytes: [1050, 1080, 1100]
+    redis_evicted_keys_total: [0, 0, 0]
+    redis_keyspace_hits_total: [900, 940, 950]
+    redis_keyspace_misses_total: [10, 12, 14]
+    redis_mem_fragmentation_ratio: [1.1, 1.1, 1.2]
+  logs: []
+
+expect:
+  failure_modes: [memory-pressure]
+  not_failure_modes: [eviction-storm, fragmentation, instance-down]
+  gaps: ["MAS-4102"]

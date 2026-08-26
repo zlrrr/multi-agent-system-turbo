@@ -358,24 +358,31 @@ func (u *Usage) Add(o Usage) {
 
 // Report is what an operator reads and what a machine consumer parses.
 type Report struct {
-	Schema          string            `json:"schema"`
-	RunID           string            `json:"run_id"`
-	GeneratedAt     time.Time         `json:"generated_at"`
-	Target          Target            `json:"target"`
-	Request         DiagnoseRequest   `json:"request"`
-	Topology        string            `json:"topology"`
-	Summary         string            `json:"summary"`
-	Hypotheses      []Hypothesis      `json:"hypotheses"`
-	Findings        []Finding         `json:"findings"`
-	ChecksPassed    []string          `json:"checks_passed"`
-	Gaps            []Gap             `json:"gaps"`
-	Recommendations []Recommendation  `json:"recommendations"`
-	Evidence        []Evidence        `json:"evidence"`
-	Usage           Usage             `json:"usage"`
-	RoleUsage       []RoleUsage       `json:"role_usage,omitempty"`
-	Routing         map[string]string `json:"routing,omitempty"`
-	Truncated       bool              `json:"truncated"`
-	Notes           []string          `json:"notes,omitempty"`
+	Schema          string           `json:"schema"`
+	RunID           string           `json:"run_id"`
+	GeneratedAt     time.Time        `json:"generated_at"`
+	Target          Target           `json:"target"`
+	Request         DiagnoseRequest  `json:"request"`
+	Topology        string           `json:"topology"`
+	Summary         string           `json:"summary"`
+	Hypotheses      []Hypothesis     `json:"hypotheses"`
+	Findings        []Finding        `json:"findings"`
+	ChecksPassed    []string         `json:"checks_passed"`
+	Gaps            []Gap            `json:"gaps"`
+	Recommendations []Recommendation `json:"recommendations"`
+	Evidence        []Evidence       `json:"evidence"`
+
+	// Conclusions are the failure-mode ids the deterministic playbooks reached.
+	// They are the report's one machine-readable verdict: everything else here
+	// is prose meant for a person. An integration that wants to route on the
+	// diagnosis — and the evaluation harness, which must score without reading
+	// prose — needs an id, not a sentence.
+	Conclusions []string          `json:"conclusions,omitempty"`
+	Usage       Usage             `json:"usage"`
+	RoleUsage   []RoleUsage       `json:"role_usage,omitempty"`
+	Routing     map[string]string `json:"routing,omitempty"`
+	Truncated   bool              `json:"truncated"`
+	Notes       []string          `json:"notes,omitempty"`
 }
 
 // SortHypotheses orders hypotheses by descending confidence, refuted ones last,

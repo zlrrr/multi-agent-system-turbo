@@ -2,7 +2,7 @@
 
 **A read-only diagnostic multi-agent system for open-source middleware.**
 
-[中文说明](./README.zh.md) · [User manual](./docs/en/user-manual.md) · [Configuration](./docs/en/configuration.md) · [Knowledge packs](./docs/en/knowledge-packs.md) · [Error codes](./docs/en/error-codes.md)
+[中文说明](./README.zh.md) · [User manual](./docs/en/user-manual.md) · [Configuration](./docs/en/configuration.md) · [Knowledge packs](./docs/en/knowledge-packs.md) · [Evaluation](./docs/en/evaluation.md) · [Error codes](./docs/en/error-codes.md)
 
 ---
 
@@ -124,17 +124,22 @@ mas diagnose --target redis-prod --symptom "p99 latency spike" --since 1h
 for t in single supervisor plan-execute debate blackboard; do
   mas diagnose -t redis-prod -s "latency spike" --topology "$t" -f json -o "$t.json"
 done
+
+# Run the corpus of cases with known causes; non-zero exit on a regression
+mas eval --matrix
 ```
 
 See the [user manual](./docs/en/user-manual.md) for configuration, RBAC, the API
-and knowledge-pack authoring.
+and knowledge-pack authoring, and the [evaluation guide](./docs/en/evaluation.md)
+for what `mas eval` measures and how to write your own cases.
 
 ## Development
 
 ```bash
 make build          # bin/mas and bin/sddctl
 make test           # the full suite; no test needs a network
-make ci             # what CI enforces: fmt, vet, lint, race tests, SDD checks, build
+make ci             # what CI enforces: fmt, vet, lint, race tests, SDD checks, build, corpus
+make eval           # the diagnostic case corpus; non-zero exit on a regression
 make sdd-verify     # parity, cascade freshness, requirement coverage, declared tests
 make docker         # container image
 ```

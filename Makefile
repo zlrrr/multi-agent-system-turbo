@@ -83,6 +83,10 @@ test-output:
 test-surfaces:
 	$(GO) test ./internal/cli/... ./internal/httpapi/...
 
+## eval: run the diagnostic case corpus; non-zero exit on regression
+eval: build
+	$(BIN_DIR)/mas eval --matrix
+
 ## sdd-verify: bilingual parity, cascade staleness and requirement coverage
 sdd-verify:
 	$(GO) run ./cmd/sddctl verify
@@ -93,7 +97,7 @@ errcodes-docs: build
 	$(BIN_DIR)/mas errcodes --format markdown --lang zh > docs/zh/error-codes.md
 
 ## ci: everything CI enforces
-ci: fmt-check vet lint test-race sdd-verify build
+ci: fmt-check vet lint test-race sdd-verify build eval
 
 ## docker: build the container image
 docker:
@@ -121,4 +125,4 @@ clean:
 
 .PHONY: help build fmt fmt-check vet lint test test-race cover \
         test-foundation test-capability test-knowledge test-reasoning test-output test-surfaces \
-        sdd-verify errcodes-docs ci docker demo dist clean
+        eval sdd-verify errcodes-docs ci docker demo dist clean

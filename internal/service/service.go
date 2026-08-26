@@ -318,7 +318,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 		}
 	}
 
-	prepGaps = append(prepGaps, s.registerTelemetryTools(registry, targetCfg)...)
+	prepGaps = append(prepGaps, s.registerTelemetryTools(ctx, registry, targetCfg)...)
 	prepGaps = append(prepGaps, s.registerSourceTools(registry, target)...)
 
 	pack, packErr := s.library.For(target.Kind, target.Version)
@@ -459,6 +459,7 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 
 	// Pack recommendations for concluded failure modes are appended after the
 	// agents' own, so vetted domain advice is never lost to a terse model reply.
+	report.Conclusions = uniqueSorted(deterministic.Conclusions)
 	s.appendPackRecommendations(report, pack, deterministic.Conclusions, req.Language)
 	if strings.TrimSpace(report.Summary) == "" {
 		report.Summary = fallbackSummary(report, req.Language)
@@ -487,6 +488,7 @@ func (s *Service) finishDeterministic(report *core.Report, pack *knowledge.Pack,
 			Rationale:  deterministicRationale(f, lang),
 		})
 	}
+	report.Conclusions = uniqueSorted(out.Conclusions)
 	s.appendPackRecommendations(report, pack, out.Conclusions, lang)
 	report.Summary = fallbackSummary(report, lang)
 }
@@ -507,6 +509,25 @@ func effectiveRouting(router *llm.Router) map[string]string {
 	out := map[string]string{}
 	for role, rt := range router.Routes() {
 		out[role] = rt.Name + "/" + rt.Model
+	}
+	return out
+}
+
+// uniqueSorted deduplicates and orders ids so the report's verdict is stable
+// between runs of the same case.
+func uniqueSorted(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -587,12 +608,35 @@ func promSelector(t config.TargetConfig) string {
 	return "{" + strings.Join(parts, ",") + "}"
 }
 
-func (s *Service) registerTelemetryTools(registry *tool.Registry, t config.TargetConfig) []core.Gap {
+// registerTelemetryTools installs the metric and log collectors and reports what
+// this run will not be able to see.
+//
+// Each configured source is probed once. A source that cannot answer is
+// unobtainable evidence, and the report has to say so whether or not this run's
+// control flow happened to ask it anything: discovered only on use, "the logs
+// were unavailable" becomes a fact about which agent ran rather than about the
+// deployment, and the same incident under a different topology would quietly
+// omit it (specs/001-mvp-core/design-lld.md amendment 1.0.6).
+//
+// The tools are registered either way. A source that is down at admission may
+// recover mid-run, and refusing to install the tool would turn a transient
+// outage into a whole run without metrics.
+func (s *Service) registerTelemetryTools(ctx context.Context, registry *tool.Registry,
+	t config.TargetConfig) []core.Gap {
+
 	var gaps []core.Gap
 	hc := &http.Client{}
 
 	if ms, err := s.cfg.MetricsSourceFor(t.MetricsSource); err == nil {
-		registry.MustRegister(promql.Tools(promql.New(ms, hc))...)
+		client := promql.New(ms, hc)
+		registry.MustRegister(promql.Tools(client)...)
+		if probeErr := client.Health(ctx); probeErr != nil {
+			gaps = append(gaps, core.Gap{
+				Intent: "metrics source " + client.Name(), Reason: core.GapUnavailable,
+				Code: errs.CodeOf(probeErr), Detail: probeErr.Error(),
+				Impact: "no metric evidence could be read for this run; every metric check below is unperformed rather than passed",
+			})
+		}
 	} else {
 		gaps = append(gaps, core.Gap{
 			Intent: "metrics source", Reason: core.GapNotConfigured, Code: errs.CodeOf(err),
@@ -601,7 +645,15 @@ func (s *Service) registerTelemetryTools(registry *tool.Registry, t config.Targe
 	}
 
 	if ls, err := s.cfg.LogsSourceFor(t.LogsSource); err == nil {
-		registry.MustRegister(loki.Tools(loki.New(ls, hc))...)
+		client := loki.New(ls, hc)
+		registry.MustRegister(loki.Tools(client)...)
+		if probeErr := client.Health(ctx); probeErr != nil {
+			gaps = append(gaps, core.Gap{
+				Intent: "log source " + client.Name(), Reason: core.GapUnavailable,
+				Code: errs.CodeOf(probeErr), Detail: probeErr.Error(),
+				Impact: "no log evidence could be read for this run; failure modes that only show in the log are neither confirmed nor ruled out",
+			})
+		}
 	} else {
 		gaps = append(gaps, core.Gap{
 			Intent: "log source", Reason: core.GapNotConfigured, Code: errs.CodeOf(err),

@@ -295,6 +295,49 @@ func TestAllSourcesDownStillCompletes(t *testing.T) {
 	}
 }
 
+// TestDownSourceIsAGapUnderEveryTopology guards design-lld.md amendment 1.0.6.
+//
+// The eval corpus found this: with Loki returning errors, `supervisor` reported
+// the logs as missing and `single` did not — because the gap was only recorded
+// when some agent happened to call the log tool, which made "the logs were
+// unavailable" a fact about control flow rather than about the deployment.
+func TestDownSourceIsAGapUnderEveryTopology(t *testing.T) {
+	for _, topology := range []string{"single", "supervisor", "plan-execute", "debate", "blackboard"} {
+		t.Run(topology, func(t *testing.T) {
+			st := newStubs(t, 0.99, true)
+			svc := newService(t, st, nil)
+			st.loki.Close()
+
+			req := request()
+			req.Topology = topology
+			rep, err := svc.Diagnose(context.Background(), req)
+			if err != nil {
+				t.Fatalf("a log-source outage must degrade, not fail: %v", err)
+			}
+
+			declared := false
+			for _, g := range rep.Gaps {
+				if g.Reason == core.GapUnavailable && strings.Contains(g.Intent, "log source") {
+					declared = true
+					if g.Impact == "" {
+						t.Errorf("gap %q does not state its effect on the analysis", g.Intent)
+					}
+				}
+			}
+			if !declared {
+				t.Errorf("the log outage went undeclared under %s: %+v", topology, rep.Gaps)
+			}
+
+			// Metrics were up throughout, so the run must still reach its
+			// conclusion. A missing source degrades the report; it does not
+			// silence it.
+			if len(rep.Conclusions) == 0 {
+				t.Errorf("no conclusion was reached from the metrics that were available")
+			}
+		})
+	}
+}
+
 func TestNoEvidenceSourceIsRefusedAtAdmission(t *testing.T) {
 	svc := newService(t, nil, nil)
 	_, err := svc.Diagnose(context.Background(), request())

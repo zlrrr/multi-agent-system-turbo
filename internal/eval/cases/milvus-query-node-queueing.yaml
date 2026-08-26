@@ -1,0 +1,51 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: milvus-query-node-queueing
+  middleware: milvus
+  version: "2.4.1"
+  title:
+    en: "Search p99 rises from queueing, not from execution"
+    zh: "检索 p99 上升源于排队，而非执行本身"
+  description:
+    en: >-
+      Proxy-side p99 went from 180 ms to 1450 ms, but query-node execution
+      stayed under 130 ms the whole time — the growth is entirely queue wait,
+      which averaged 623 ms against 110 ms of execution. That distinction is
+      the case: the same graph read at the proxy alone would send an operator
+      to tune the index. Object storage answered in tens of milliseconds and no
+      log line mentions etcd, so the dependencies are ruled out; index tasks are
+      at zero, so index building is too.
+    zh: >-
+      proxy 侧 p99 从 180 毫秒升到 1450 毫秒，但 query node 的执行耗时全程不超过 130 毫秒 ——
+      增长完全来自排队等待，其平均值为 623 毫秒，而执行平均值仅 110 毫秒。
+      这个区分正是本用例的要点：只看 proxy 侧的同一条曲线，
+      会把运维人员引向去调索引。对象存储在几十毫秒内响应，
+      日志中也没有任何一行提到 etcd，因此依赖问题被排除；
+      索引任务数为 0，索引构建问题同样被排除。
+
+symptom:
+  en: "search p99 latency climbed sharply while request throughput stayed flat"
+  zh: "请求吞吐持平，检索 p99 时延却急剧上升"
+
+telemetry:
+  metrics:
+    milvus_proxy_sq_latency_bucket: [180, 640, 1450]
+    milvus_querynode_sq_req_latency_bucket: [90, 110, 130]
+    milvus_querynode_sq_queue_latency_bucket: [60, 520, 1290]
+    milvus_proxy_search_vectors_count: [900, 910, 905]
+    milvus_datacoord_index_task_count: [0, 0, 0]
+    milvus_meta_op_count: [0.2, 0.2, 0.3]
+    milvus_storage_request_latency_bucket: [40, 45, 52]
+    milvus_querynode_entity_num: [12000000, 12000000, 12000000]
+    # `up` is the milvus pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[QueryNode] search task enqueued, queue depth 48"
+    - "[QueryNode] scheduler read concurrency reached its configured limit"
+    - "[Proxy] search request latency 1450ms, exceeds warn threshold"
+
+expect:
+  failure_modes: [query-node-latency]
+  not_failure_modes: [dependency-failure, index-build-failure]

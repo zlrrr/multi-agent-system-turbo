@@ -134,3 +134,8 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 |---|---|---|---|---|
 | `MAS-9001` | error | `InvariantViolated` | internal invariant violated: %s | This is a defect; please report it with the run record. |
 | `MAS-9002` | error | `Unexpected` | unexpected internal error: %s | This is a defect; please report it with the run record. |
+| `MAS-9100` | error | `CaseMalformed` | diagnostic case %s is malformed: %s | A case declares telemetry and the outcome a correct diagnosis reaches, both languages included. See docs/en/evaluation.md. |
+| `MAS-9101` | error | `CaseModeUndeclared` | diagnostic case %s expects failure mode %q, which pack %s does not declare | A case can only assert conclusions the pack is able to reach; otherwise it fails forever and teaches nobody anything. Check the mode id against `mas packs --show`. |
+| `MAS-9102` | error | `CaseNoPack` | diagnostic case names middleware %q, which has no knowledge pack | Ship a pack for that middleware, or point the case at one that exists. |
+| `MAS-9103` | error | `CorpusRegressed` | the corpus regressed: %d case(s) missed and %d reached a conclusion the case rules out | Run `mas eval` to see which. A miss and a false conclusion are different failures: the first leaves an operator where they started, the second sends them somewhere wrong with confidence. |
+| `MAS-9104` | error | `CaseDirUnreadable` | case directory %s cannot be read: %s | A mistyped --cases path would otherwise run the shipped corpus and report success, which is the one result that must never be produced by accident. |

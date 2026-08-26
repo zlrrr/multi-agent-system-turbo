@@ -37,6 +37,21 @@ type env struct {
 }
 
 func (e *env) load() (*service.Service, error) {
+	cfg, err := e.loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	redactor := safety.NewRedactor(cfg.Log.Redact, nil)
+	logger := obs.Setup(cfg.Log, redactor, e.errOut)
+	obs.SetFallbackLogger(logger)
+	return service.New(service.Options{Config: cfg, Redactor: redactor, Logger: logger})
+}
+
+// loadConfig resolves the configuration the global flags describe, without
+// building a service around it. `mas eval` needs the knowledge packs and the
+// model settings but constructs its own service per case, so a service here
+// would be one nobody runs.
+func (e *env) loadConfig() (*config.Config, error) {
 	overrides := map[string]string{}
 	if e.g.logLevel != "" {
 		overrides["log.level"] = e.g.logLevel
@@ -57,14 +72,7 @@ func (e *env) load() (*service.Service, error) {
 		overrides["llm.model"] = e.g.model
 	}
 
-	cfg, err := config.Load(e.configPaths(), nil, overrides)
-	if err != nil {
-		return nil, err
-	}
-	redactor := safety.NewRedactor(cfg.Log.Redact, nil)
-	logger := obs.Setup(cfg.Log, redactor, e.errOut)
-	obs.SetFallbackLogger(logger)
-	return service.New(service.Options{Config: cfg, Redactor: redactor, Logger: logger})
+	return config.Load(e.configPaths(), nil, overrides)
 }
 
 // configPaths is where configuration is read from: the --config flag, then
@@ -134,6 +142,7 @@ anything it inspects: every recommendation is for a human operator to carry out.
 		newTargetsCmd(e),
 		newTopologiesCmd(e),
 		newModelsCmd(e),
+		newEvalCmd(e),
 		newPacksCmd(e),
 		newToolsCmd(e),
 		newErrCodesCmd(e),

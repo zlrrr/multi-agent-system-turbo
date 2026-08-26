@@ -1,0 +1,59 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: mongodb-replication-lag-write-concern
+  middleware: mongodb
+  version: "7.0.5"
+  title:
+    en: "Majority writes time out behind a lagging secondary"
+    zh: "majority 写入因从节点复制滞后而超时"
+  description:
+    en: >-
+      Replication lag grew from twelve seconds to four minutes and the log
+      carries wtimeout errors. Both are the answer, and they are one fault seen
+      from two sides: a write with majority concern cannot acknowledge until a
+      secondary catches up. The four ruled-out modes are the ones the symptom
+      invites. No election happened, connections are nowhere near their limit,
+      the cache is clean and the disk is at 43%, and query execution scans nine
+      documents per document returned — so a diagnosis reaching capacity or
+      query performance read the word "timeout" and stopped there.
+    zh: >-
+      复制滞后从 12 秒增长到 4 分钟，日志中带有 wtimeout 错误。
+      两者都是正确答案，而且它们是同一个故障的两面：
+      带 majority 写关注的写入，在从节点追上之前无法确认。
+      被排除的四个模式正是这个症状会引诱人去猜的：
+      没有发生选举，连接数远未触及上限，缓存干净、磁盘占用 43%，
+      查询每返回一个文档只扫描九个 —— 因此得出容量或查询性能结论的诊断，
+      是看到“超时”两个字就停下了。
+
+symptom:
+  en: "majority write concern timeouts and stale secondary reads"
+  zh: "majority 写关注超时，从节点读到过期数据"
+
+telemetry:
+  metrics:
+    mongodb_up: [1, 1, 1]
+    mongodb_mongod_replset_member_health: [1, 1, 1]
+    mongodb_mongod_replset_election_count: [0, 0, 0]
+    mongodb_mongod_replset_member_replication_lag: [12, 95, 240]
+    mongodb_mongod_replset_oplog_head_timestamp: [7200, 5400, 3100]
+    mongodb_ss_metrics_queryExecutor_scanned: [8, 9, 10]
+    mongodb_ss_globalLock_currentQueue: [0, 1, 1]
+    mongodb_ss_opLatencies_latency: [4, 5, 6]
+    mongodb_ss_connections_available: [800, 790, 780]
+    mongodb_ss_wt_cache_tracked_dirty_bytes_in_the_cache: [0.05, 0.06, 0.07]
+    node_filesystem_avail_bytes: [0.42, 0.42, 0.43]
+  logs:
+    - "{\"s\":\"W\",\"c\":\"REPL\",\"msg\":\"Member is more than 10 seconds behind the primary\"}"
+    - "{\"s\":\"I\",\"c\":\"WRITE\",\"msg\":\"waiting for replication timed out\",\"attr\":{\"wtimeout\":5000}}"
+    - "{\"s\":\"I\",\"c\":\"WRITE\",\"msg\":\"waiting for replication timed out\",\"attr\":{\"wtimeout\":5000}}"
+    - "{\"s\":\"W\",\"c\":\"REPL\",\"msg\":\"Applier batch took longer than expected\"}"
+
+expect:
+  failure_modes: [replication-lag, write-concern-stall]
+  not_failure_modes:
+    - primary-election
+    - slow-queries
+    - lock-contention
+    - connection-saturation
+    - storage-pressure

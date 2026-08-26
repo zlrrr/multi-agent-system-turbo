@@ -6,7 +6,7 @@ feature: 001-mvp-core
 artifacts:
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.1.4
+    version: 1.1.5
     upstream: null
     derived_from_version: null
   - id: spec
@@ -15,7 +15,7 @@ artifacts:
     path: spec.md
     version: 1.0.0
     upstream: goals
-    derived_from_version: 1.1.4
+    derived_from_version: 1.1.5
   - id: plan
     path: plan.md
     version: 1.0.0
@@ -28,7 +28,7 @@ artifacts:
     derived_from_version: 1.0.0
   - id: lld
     path: design-lld.md
-    version: 1.0.5
+    version: 1.0.6
     upstream: hld
     derived_from_version: 1.0.0
   - id: tasks
@@ -38,4 +38,4 @@ artifacts:
     path: tasks.md
     version: 1.0.0
     upstream: lld
-    derived_from_version: 1.0.5
+    derived_from_version: 1.0.6
