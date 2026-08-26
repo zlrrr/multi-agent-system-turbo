@@ -21,6 +21,7 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-1010` | error | `WindowInvalid` | invalid time window: %s | Use --since (e.g. 1h) or an explicit --from/--to pair with from < to. |
 | `MAS-1011` | error | `ModeInvalid` | invalid mode %q | Use `offline` (telemetry only) or `online` (also reads the live environment). |
 | `MAS-1012` | error | `TelemetrySourceUnknown` | unknown telemetry source %q | Declare the source under `telemetry.metrics` or `telemetry.logs`. |
+| `MAS-1013` | error | `TenancyInconsistent` | tenancy configuration is inconsistent: %s | Naming a tenant on any target makes the whole configuration multi-tenant. Then every target needs one, every API credential needs the tenants it may act for, and every tenant a credential names must exist. |
 
 ## LLM providers
 
@@ -129,6 +130,7 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-7012` | error | `APICredentialMissing` | the request carried no usable credential | Send `Authorization: Bearer <token>` with a token configured under `server.auth.tokens`. |
 | `MAS-7013` | error | `APITokenScopeInvalid` | API token %q is unusable: %s | Every token must declare at least one scope, and every scope must be one this build knows. An ignored scope is an authorisation you believe you granted. |
 | `MAS-7014` | error | `APIScopeMissing` | the credential lacks the %q scope this route requires | Add the scope to this token under `server.auth.tokens[].scopes`, or call with a token that has it. |
+| `MAS-7015` | warn | `APITenantDenied` | credential %q may not act for tenant %q | This appears in the audit log only. On the wire the request looks like an unknown target, because confirming that another tenant's target exists is the neighbour's information rather than the caller's. |
 | `MAS-7404` | error | `NotFound` | not found: %s | Check the identifier in the request path. |
 
 ## Safety guard

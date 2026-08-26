@@ -30,6 +30,10 @@ const (
 type Principal struct {
 	Name   string
 	Scopes map[Scope]bool
+	// Tenants are the slices of the estate this credential may act for. Empty
+	// means unrestricted, which configuration only permits when no target names
+	// a tenant (specs/011-tenant-registry/design-hld.md §2).
+	Tenants map[string]bool
 }
 
 // Anonymous is the principal of an unauthenticated request on a server with no
@@ -98,7 +102,13 @@ func NewAuthorizer(cfg config.ServerConfig, lang string, log *slog.Logger) (*Aut
 		for _, s := range t.Scopes {
 			scopes[Scope(s)] = true
 		}
-		a.tokens[sha256.Sum256([]byte(plain))] = Principal{Name: t.Name, Scopes: scopes}
+		tenants := map[string]bool{}
+		for _, name := range t.Tenants {
+			tenants[name] = true
+		}
+		a.tokens[sha256.Sum256([]byte(plain))] = Principal{
+			Name: t.Name, Scopes: scopes, Tenants: tenants,
+		}
 		a.on = true
 	}
 	return a, nil

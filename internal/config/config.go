@@ -213,6 +213,12 @@ type TargetConfig struct {
 	LogQuery      string            `yaml:"log_query" json:"log_query"`
 	Hosts         []string          `yaml:"hosts" json:"hosts"`
 	Port          int               `yaml:"port" json:"port"`
+	// Tenant is which slice of the estate this target belongs to. Naming one
+	// on any target turns the whole configuration multi-tenant — there is no
+	// separate flag, because a flag can be off with tenants configured, which
+	// is a deployment that looks partitioned and is not
+	// (specs/011-tenant-registry/design-hld.md §2).
+	Tenant string `yaml:"tenant" json:"tenant,omitempty"`
 }
 
 // KnowledgeConfig points at additional knowledge-pack directories.
@@ -301,6 +307,10 @@ type APIToken struct {
 	Name   string   `yaml:"name" json:"name"`
 	Token  Secret   `yaml:"token" json:"token"`
 	Scopes []string `yaml:"scopes" json:"scopes"`
+	// Tenants are the slices of the estate this credential may act for.
+	// Required once any target names a tenant: an unrestricted credential in a
+	// partitioned deployment is a superuser nobody declared.
+	Tenants []string `yaml:"tenants" json:"tenants,omitempty"`
 }
 
 // ServerTLS describes how the API is protected on the wire.

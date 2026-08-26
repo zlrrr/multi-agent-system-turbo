@@ -20,6 +20,7 @@
 | `MAS-1010` | error | `WindowInvalid` | 时间窗口非法：%s | 使用 --since（如 1h），或显式给出满足 from < to 的 --from/--to。 |
 | `MAS-1011` | error | `ModeInvalid` | 运行模式 %q 非法 | 使用 `offline`（仅遥测）或 `online`（同时读取实时环境）。 |
 | `MAS-1012` | error | `TelemetrySourceUnknown` | 未知遥测数据源 %q | 在 `telemetry.metrics` 或 `telemetry.logs` 下声明该数据源。 |
+| `MAS-1013` | error | `TenancyInconsistent` | 租户配置不自洽：%s | 只要在任何一个目标上写下 tenant，整份配置就是多租户的。此时每个目标都需要 tenant，每个 API 凭据都需要写明它能代表哪些租户，且凭据写下的每个租户都必须真实存在。 |
 
 ## LLM 供应商
 
@@ -128,6 +129,7 @@
 | `MAS-7012` | error | `APICredentialMissing` | 请求未携带可用的凭据 | 请在请求中携带 `Authorization: Bearer <token>`，其中 token 需在 `server.auth.tokens` 下配置。 |
 | `MAS-7013` | error | `APITokenScopeInvalid` | API token %q 不可用：%s | 每个 token 至少要声明一个 scope，且每个 scope 都必须是本版本认识的。一个被忽略的 scope，是一次你以为自己已经授出的授权。 |
 | `MAS-7014` | error | `APIScopeMissing` | 该凭据缺少此路由所需的 %q scope | 请在 `server.auth.tokens[].scopes` 下给该 token 加上这个 scope，或改用已具备该 scope 的 token 调用。 |
+| `MAS-7015` | warn | `APITenantDenied` | 凭据 %q 无权代表租户 %q | 这只出现在审计日志中。在网络响应上，该请求看起来就是一个未知目标 —— 因为确认另一个租户的目标存在，泄露的是邻居的信息，而不是调用者的。 |
 | `MAS-7404` | error | `NotFound` | 未找到：%s | 检查请求路径中的标识符。 |
 
 ## 安全守卫

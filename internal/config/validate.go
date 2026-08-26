@@ -165,6 +165,47 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Tenancy turns itself on: the moment any target names a tenant, the whole
+	// configuration is multi-tenant and everything below follows. A flag would
+	// let a partitioned deployment run unpartitioned, which is the one failure
+	// this arrangement makes impossible (design-hld.md §2).
+	multiTenant := c.MultiTenant()
+	declared := map[string]bool{}
+	for _, t := range c.Tenants() {
+		declared[t] = true
+	}
+	if multiTenant {
+		for i, t := range c.Targets {
+			if t.Tenant == "" {
+				problems = append(problems, errs.New("MAS-1013", fmt.Sprintf(
+					"targets[%d] (%s) names no tenant, but other targets do; a target "+
+						"belonging to nobody is one everyone or no one can reach", i, t.ID)).Error())
+			}
+		}
+		for i, tok := range c.Server.Auth.Tokens {
+			if len(tok.Tenants) == 0 {
+				problems = append(problems, errs.New("MAS-1013", fmt.Sprintf(
+					"server.auth.tokens[%d] (%s) names no tenants in a multi-tenant "+
+						"configuration, which would make it a superuser nobody declared",
+					i, tok.Name)).Error())
+			}
+		}
+	}
+	for i, tok := range c.Server.Auth.Tokens {
+		for _, name := range tok.Tenants {
+			switch {
+			case !multiTenant:
+				problems = append(problems, errs.New("MAS-1013", fmt.Sprintf(
+					"server.auth.tokens[%d] (%s) names tenant %q, but no target does, so "+
+						"the restriction would be silently ignored", i, tok.Name, name)).Error())
+			case !declared[name]:
+				problems = append(problems, errs.New("MAS-1013", fmt.Sprintf(
+					"server.auth.tokens[%d] (%s) names tenant %q, which no target declares",
+					i, tok.Name, name)).Error())
+			}
+		}
+	}
+
 	switch c.Run.DefaultMode {
 	case "", "offline", "online":
 	default:

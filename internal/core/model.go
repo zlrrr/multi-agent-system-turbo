@@ -124,6 +124,8 @@ type DiagnoseRequest struct {
 	// carries no JSON tag on purpose: a client-supplied principal would be an
 	// attribution anyone could forge.
 	Principal string `json:"-"`
+	// Tenant is resolved from configuration, for the same reason.
+	Tenant string `json:"-"`
 }
 
 // EvidenceKind types the payload an Evidence carries.
@@ -513,7 +515,12 @@ type RunRecord struct {
 	// whoever could execute the binary — inventing a name for that would be a
 	// fact the system does not have
 	// (specs/009-api-authentication/design-lld.md §5).
-	Principal  string            `json:"principal,omitempty"`
+	Principal string `json:"principal,omitempty"`
+	// Tenant is which slice of the estate this run was for, recorded when it
+	// happened rather than derived later: reading the target's tenant at query
+	// time answers which tenant owns it *now*, and audits ask about the past
+	// (specs/011-tenant-registry/design-hld.md §4).
+	Tenant     string            `json:"tenant,omitempty"`
 	Request    DiagnoseRequest   `json:"request"`
 	Target     Target            `json:"target"`
 	StartedAt  time.Time         `json:"started_at"`
