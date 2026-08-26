@@ -2,7 +2,7 @@
 # `derived_from_version` records the upstream version this artifact was last
 # reconciled against. When upstream `version` exceeds it, `sdd verify` marks
 # this artifact stale and the build fails until it is re-reviewed and re-stamped.
-feature: 008-regression-baselines
+feature: 010-object-run-store
 artifacts:
   # The goals document is every feature's root upstream. Without this entry an
   # amendment to the goals could not mark a feature's spec stale, which is the

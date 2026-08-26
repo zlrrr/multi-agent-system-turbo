@@ -5,15 +5,20 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/httpapi"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/store"
+	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
 
 // scopedTestPack has one playbook that applies to every version and one that
@@ -300,5 +305,109 @@ func TestDoctorAndAdmitAgreeOnLoopback(t *testing.T) {
 			t.Errorf("%q: doctor says loopback=%v but Admit allows unauthenticated=%v",
 				addr, doctorSaysLoopback, admitAllows)
 		}
+	}
+}
+
+// failingStore is a RunStore whose writes fail after the run has started.
+type failingStore struct {
+	store.RunStore
+	failFinish bool
+}
+
+func (f *failingStore) Finish(ctx context.Context, runID string, rep *core.Report, u core.Usage) error {
+	if f.failFinish {
+		return errs.New("MAS-6011", 403, "runs/"+runID+"/record.json", "AccessDenied")
+	}
+	return f.RunStore.Finish(ctx, runID, rep, u)
+}
+
+// TestRunSurvivesAStoreFailure is FR-008 of feature 010, and CON-002 with it.
+// Losing the answer because we could not file it away would be the wrong trade
+// mid-incident — but a record that quietly did not save is only discovered by
+// the person who needed it, so the report says so.
+func TestRunSurvivesAStoreFailure(t *testing.T) {
+	st := newStubs(t, 0.99, true)
+	svc := newServiceWithStore(t, st, &failingStore{RunStore: store.NewMemory(), failFinish: true})
+
+	rep, err := svc.Diagnose(context.Background(), request())
+	if err != nil {
+		t.Fatalf("a store failure destroyed the analysis: %v", err)
+	}
+	if rep == nil || len(rep.Hypotheses) == 0 {
+		t.Fatal("the report did not survive the store failure")
+	}
+
+	joined := strings.Join(rep.Notes, " ")
+	if !strings.Contains(joined, "MAS-6011") {
+		t.Errorf("the report does not say the record was not stored: %v", rep.Notes)
+	}
+	if !strings.Contains(joined, "cannot be replayed") {
+		t.Errorf("the note does not say what was lost: %v", rep.Notes)
+	}
+}
+
+// TestDoctorProbesTheObjectStore is FR-011 of feature 010. A bucket that is not
+// there is discovered when a run tries to save, which is the worst moment.
+func TestDoctorProbesTheObjectStore(t *testing.T) {
+	find := func(results []service.CheckResult) service.CheckResult {
+		t.Helper()
+		for _, r := range results {
+			if r.Name == "run store" {
+				return r
+			}
+		}
+		t.Fatal("mas doctor does not report the run store")
+		return service.CheckResult{}
+	}
+
+	// A reachable bucket, and the fact that matters about it: it is shared.
+	reached := false
+	bucket := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`))
+	}))
+	defer bucket.Close()
+
+	svc := newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Store = config.StoreConfig{Type: "s3", S3: config.S3Config{
+			Endpoint: bucket.URL, Region: "us-east-1", Bucket: "mas-runs",
+			AccessKeyID: "id", SecretAccessKey: "secret", PathStyle: true,
+		}}
+	})
+	got := find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckOK {
+		t.Errorf("a reachable bucket was graded %q: %s", got.Status, got.Detail)
+	}
+	if !reached {
+		t.Error("the probe never contacted the bucket")
+	}
+	if !strings.Contains(got.Detail, "shared") {
+		t.Errorf("the detail does not say the store is shared: %q", got.Detail)
+	}
+
+	// An unreachable one is a failure with the code attached.
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Store = config.StoreConfig{Type: "s3", S3: config.S3Config{
+			Endpoint: "http://127.0.0.1:1", Region: "us-east-1", Bucket: "mas-runs",
+			PathStyle: true, Timeout: config.Duration(time.Second),
+		}}
+	})
+	got = find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckFail {
+		t.Errorf("an unreachable bucket was graded %q: %s", got.Status, got.Detail)
+	}
+	if got.Code == "" {
+		t.Errorf("the failure carries no code: %+v", got)
+	}
+
+	// And the in-memory store warns, because "nothing is persisted" is a fact
+	// an operator should not have to infer.
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Store = config.StoreConfig{Type: "memory"}
+	})
+	got = find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckWarn || !strings.Contains(got.Detail, "lost") {
+		t.Errorf("the memory store was reported as %q: %s", got.Status, got.Detail)
 	}
 }

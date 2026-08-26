@@ -307,8 +307,13 @@ func TestOpenSelectsImplementation(t *testing.T) {
 	if s, err := store.Open("", t.TempDir()); err != nil || s == nil {
 		t.Fatalf("default should be fs: %v", err)
 	}
-	if _, err := store.Open("s3", ""); errs.CodeOf(err) != "MAS-6004" {
-		t.Fatalf("got %v, want MAS-6004", err)
+	// `s3` is a known type now, so an empty configuration is a configuration
+	// error rather than an unknown-type error — and the code says which field.
+	if _, err := store.Open("s3", ""); errs.CodeOf(err) != "MAS-6010" {
+		t.Fatalf("s3 with no configuration: got %v, want MAS-6010", err)
+	}
+	if _, err := store.Open("postgres", ""); errs.CodeOf(err) != "MAS-6004" {
+		t.Fatalf("a genuinely unknown type: got %v, want MAS-6004", err)
 	}
 	if _, err := store.NewFS(""); errs.CodeOf(err) != "MAS-6004" {
 		t.Fatalf("empty dir: got %v, want MAS-6004", err)

@@ -460,6 +460,36 @@ reproducible on a laptop with the network off, which is what makes it an audit
 trail rather than an archive. Records carry an integrity digest; a modified or
 truncated record is refused with `MAS-6003` rather than replayed as genuine.
 
+### Where runs are kept
+
+`store.type: fs` keeps them on one machine's disk. That is right for a laptop
+and wrong for more than one replica: in Kubernetes the filesystem is usually the
+pod's, so a restart loses the history and a second replica cannot see the first
+one's runs.
+
+```yaml
+store:
+  type: s3
+  s3:
+    endpoint: http://minio:9000
+    region: us-east-1
+    bucket: mas-runs
+    access_key_id: "${env:MAS_S3_KEY_ID}"
+    secret_access_key: "${env:MAS_S3_SECRET}"
+    path_style: true
+```
+
+Any S3-compatible bucket works — AWS S3, MinIO, Ceph RGW. Each run gets its own
+prefix, with the record written at the start and again at the end and each step
+as its own immutable object, so nothing is ever rewritten and a run interrupted
+part-way is still readable. A reconstructed run stays marked `running`: it is
+what was recorded, not a claim that it finished.
+
+`mas doctor` says which store is in use and whether the bucket answers. If the
+store fails after an analysis is complete you still get the report, with a note
+saying it was not persisted — see [configuration](./configuration.md) for the
+full reference.
+
 ## 12. When something goes wrong
 
 Every error carries a stable code, a message and a remedy:

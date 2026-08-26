@@ -96,7 +96,7 @@ func New(opts Options) (*Service, error) {
 	}
 	s.store = opts.Store
 	if s.store == nil {
-		st, err := store.Open(opts.Config.Store.Type, opts.Config.Store.Dir)
+		st, err := store.OpenConfig(opts.Config.Store)
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +265,14 @@ func (s *Service) Diagnose(ctx context.Context, req core.DiagnoseRequest) (*core
 
 	report.Usage.WallMillis = time.Since(started).Milliseconds()
 	if err := s.store.Finish(ctx, runID, report, report.Usage); err != nil {
+		// The analysis is done and the operator gets it: losing the answer
+		// because we could not file it away would be the wrong trade in the
+		// middle of an incident. But it is said out loud rather than left in a
+		// log nobody is reading — a record that quietly did not save is only
+		// discovered by the person who needed it
+		// (specs/010-object-run-store/design-hld.md §4).
 		log.Warn("run record could not be finalised", "code", errs.CodeOf(err), "error", err.Error())
+		report.Notes = append(report.Notes, storeFailureNote(errs.CodeOf(err), runID, req.Language))
 	}
 	s.metrics.IncCounter("mas_runs_completed_total", map[string]string{"status": "completed"})
 	s.metrics.Observe("mas_run_duration_seconds", time.Since(started).Seconds(),
@@ -505,6 +512,18 @@ func (s *Service) finishDeterministic(report *core.Report, pack *knowledge.Pack,
 	report.Conclusions = uniqueSorted(out.Conclusions)
 	s.appendPackRecommendations(report, pack, out.Conclusions, lang)
 	report.Summary = fallbackSummary(report, lang)
+}
+
+// storeFailureNote tells the reader that this report exists but was not
+// persisted, so nobody looks for it later and concludes it was never run.
+func storeFailureNote(code, runID, lang string) string {
+	if lang == "zh" {
+		return "本报告未能存入运行存储（" + code + "，运行 id " + runID +
+			"）。分析本身完好，但此次运行不会出现在 `mas runs` 中，也无法被重放。"
+	}
+	return "This report could not be written to the run store (" + code +
+		", run id " + runID + "). The analysis is intact, but this run will not " +
+		"appear in `mas runs` and cannot be replayed."
 }
 
 func deterministicRationale(f core.Finding, lang string) string {

@@ -187,8 +187,25 @@ func (c *Config) Validate() error {
 
 	switch c.Store.Type {
 	case "", "fs", "memory":
+	case "s3":
+		// Validated at load rather than at the first write: a mistake found
+		// during an incident is a mistake found at the worst time.
+		if strings.TrimSpace(c.Store.S3.Endpoint) == "" {
+			bad("store.s3.endpoint", "must be set when store.type is s3")
+		} else if err := checkURL(c.Store.S3.Endpoint); err != nil {
+			bad("store.s3.endpoint", err.Error())
+		}
+		if strings.TrimSpace(c.Store.S3.Bucket) == "" {
+			bad("store.s3.bucket", "must be set when store.type is s3")
+		}
+		if strings.TrimSpace(c.Store.S3.Region) == "" {
+			bad("store.s3.region", "must be set when store.type is s3")
+		}
+		if c.Store.S3.AccessKeyID.IsZero() != c.Store.S3.SecretAccessKey.IsZero() {
+			bad("store.s3", "access_key_id and secret_access_key must both be set or both be empty")
+		}
 	default:
-		bad("store.type", fmt.Sprintf("%q is not one of fs, memory", c.Store.Type))
+		bad("store.type", fmt.Sprintf("%q is not one of fs, memory, s3", c.Store.Type))
 	}
 	if c.Store.Type == "fs" && c.Store.Dir == "" {
 		bad("store.dir", "must be set when store.type is fs")

@@ -109,6 +109,11 @@
 | `MAS-6002` | error | `RunWriteFailed` | 无法持久化运行记录 %q：%s | 确认 store.dir 存在且可写。 |
 | `MAS-6003` | error | `RunCorrupt` | 运行记录 %q 已损坏：%s | 该记录未通过完整性校验，无法重放。 |
 | `MAS-6004` | error | `RunStoreUnavailable` | 运行存储不可用：%s | 检查 store.type 与 store.dir。 |
+| `MAS-6010` | error | `ObjectStoreConfigInvalid` | 对象存储配置在 %s 处非法：%s | 请修正 `store.s3` 下指出的配置路径。endpoint、region 与 bucket 为必填；两个凭据必须同时设置或同时留空 —— 只配一半，意味着你以为自己配好了访问权限，而其实没有。 |
+| `MAS-6011` | error | `ObjectStoreRejected` | 对象存储返回 HTTP %d（%s）：%s | 消息中的 S3 错误码说明了该怎么做：AccessDenied 是凭据或策略问题，NoSuchBucket 是桶或 region 弄错了，SignatureDoesNotMatch 通常是时钟偏差超过了几分钟。 |
+| `MAS-6012` | error | `ObjectStoreUnreachable` | 对象存储 %s 不可达：%s | 检查 endpoint 与网络策略。运行仍会完成；它们会被报告为“未持久化”，而不是被静默丢失。 |
+| `MAS-6013` | error | `ObjectRecordMalformed` | 存储中的记录 %s 格式错误：%s | 该对象存在，但不是一条运行记录。要么有本工具之外的东西写入了这个前缀，要么该对象被截断了。 |
+| `MAS-6014` | error | `RunTooManySteps` | 运行 %s 产生的步骤数超出了键布局可排序的范围（%d） | 这远超步数预算，本不应发生。写入被拒绝而不是回绕 —— 因为一份被静默重排的审计轨迹，比一份缺失的更糟。 |
 
 ## API 与 CLI
 

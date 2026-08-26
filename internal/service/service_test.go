@@ -81,6 +81,18 @@ func newStubs(t *testing.T, memoryRatio float64, evicting bool) *stubs {
 
 func newService(t *testing.T, st *stubs, mutate func(*config.Config)) *service.Service {
 	t.Helper()
+	return newServiceWith(t, st, mutate, nil)
+}
+
+// newServiceWithStore builds a service around a substituted run store, which is
+// how a test reaches the paths that only run when persistence fails.
+func newServiceWithStore(t *testing.T, st *stubs, rs store.RunStore) *service.Service {
+	t.Helper()
+	return newServiceWith(t, st, nil, rs)
+}
+
+func newServiceWith(t *testing.T, st *stubs, mutate func(*config.Config), rs store.RunStore) *service.Service {
+	t.Helper()
 	cfg := config.Default()
 	cfg.Store = config.StoreConfig{Type: "memory"}
 	cfg.Log.Level = "error"
@@ -109,7 +121,13 @@ func newService(t *testing.T, st *stubs, mutate func(*config.Config)) *service.S
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	svc, err := service.New(service.Options{Config: cfg, Store: store.NewMemory()})
+	// The in-memory store is injected only when the configuration asks for it.
+	// A test that configures a different backend wants the service to open
+	// that backend, which is the path the object-store probe exercises.
+	if rs == nil && cfg.Store.Type == "memory" {
+		rs = store.NewMemory()
+	}
+	svc, err := service.New(service.Options{Config: cfg, Store: rs})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,41 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
 
+// probeRunStore reports where runs are kept and, for an object store, whether
+// the bucket answers. A store that is unreachable is not discovered until a run
+// tries to save, which is the worst moment to learn about it.
+func (s *Service) probeRunStore(ctx context.Context,
+	add func(string, CheckStatus, string, error, time.Time), t0 time.Time) {
+
+	switch s.cfg.Store.Type {
+	case "memory":
+		add("run store", CheckWarn,
+			"in memory: nothing is persisted, and every run is lost when the process exits", nil, t0)
+		return
+	case "s3":
+	default:
+		add("run store", CheckOK,
+			fmt.Sprintf("filesystem at %s; private to this machine", orUnset(s.cfg.Store.Dir)), nil, t0)
+		return
+	}
+
+	cfg := s.cfg.Store.S3
+	where := fmt.Sprintf("%s bucket %s", cfg.Endpoint, cfg.Bucket)
+	probe, ok := s.store.(interface{ Probe(context.Context) error })
+	if !ok {
+		add("run store", CheckWarn, where+"; reachability could not be checked", nil, t0)
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	err := probe.Probe(probeCtx)
+	cancel()
+	if err != nil {
+		add("run store", CheckFail, where+" — "+err.Error(), err, t0)
+		return
+	}
+	add("run store", CheckOK, where+" reachable; shared by every replica", nil, t0)
+}
+
 // apiExposureStatus grades the API's configuration.
 //
 // A configuration `httpapi.Admit` would refuse is a **warning** here, not a
@@ -155,6 +190,9 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 
 	t0 = time.Now()
 	add("api exposure", apiExposureStatus(s.cfg.Server), describeExposure(s.cfg.Server), nil, t0)
+
+	t0 = time.Now()
+	s.probeRunStore(ctx, add, t0)
 
 	t0 = time.Now()
 	if s.library.Len() == 0 {

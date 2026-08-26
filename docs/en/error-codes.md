@@ -110,6 +110,11 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-6002` | error | `RunWriteFailed` | could not persist run %q: %s | Check that store.dir exists and is writable. |
 | `MAS-6003` | error | `RunCorrupt` | run %q is corrupt: %s | The record failed its integrity check and cannot be replayed. |
 | `MAS-6004` | error | `RunStoreUnavailable` | run store is unavailable: %s | Check store.type and store.dir. |
+| `MAS-6010` | error | `ObjectStoreConfigInvalid` | object store configuration is invalid at %s: %s | Correct the named path under `store.s3`. Endpoint, region and bucket are required, and the two credentials must both be set or both be empty — half a pair means you believe you configured access and did not. |
+| `MAS-6011` | error | `ObjectStoreRejected` | object store returned HTTP %d for %s: %s | The S3 error code in the message says what to do: AccessDenied is a credential or policy problem, NoSuchBucket is the wrong bucket or region, SignatureDoesNotMatch is usually a clock more than a few minutes out. |
+| `MAS-6012` | error | `ObjectStoreUnreachable` | object store %s could not be reached: %s | Check the endpoint and network policy. Runs still complete; they are reported as not persisted rather than silently lost. |
+| `MAS-6013` | error | `ObjectRecordMalformed` | stored record %s is malformed: %s | The object exists but is not a run record. Something other than this tool wrote to the prefix, or the object was truncated. |
+| `MAS-6014` | error | `RunTooManySteps` | run %s produced more steps than the key layout can order (%d) | This is far beyond the step budget and should not happen. The write is refused rather than wrapping around, because a silently reordered audit trail is worse than a missing one. |
 
 ## API and CLI
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
@@ -231,13 +232,23 @@ func itoa(n int) string {
 }
 
 // Open builds the configured store.
+//
+// The S3 case takes the whole store configuration because an object store needs
+// more than a directory name; the filesystem and memory cases are untouched.
 func Open(kind, dir string) (RunStore, error) {
-	switch kind {
+	return OpenConfig(config.StoreConfig{Type: kind, Dir: dir})
+}
+
+// OpenConfig builds the configured store from the full configuration.
+func OpenConfig(cfg config.StoreConfig) (RunStore, error) {
+	switch cfg.Type {
 	case "", "fs":
-		return NewFS(dir)
+		return NewFS(cfg.Dir)
 	case "memory":
 		return NewMemory(), nil
+	case "s3":
+		return NewObject(cfg.S3)
 	default:
-		return nil, errs.New("MAS-6004", "unknown store type "+kind)
+		return nil, errs.New("MAS-6004", "unknown store type "+cfg.Type)
 	}
 }

@@ -252,11 +252,67 @@ report says so — a partial analysis with its limits marked beats no analysis.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `type` | `fs` | `fs` or `memory` |
+| `type` | `fs` | `fs`, `memory` or `s3` |
 | `dir` | `runs` | Directory, for `fs` |
+| `s3.*` | *(none)* | The bucket, for `s3` |
 
-Records carry a SHA-256 digest. A modified or truncated record is refused with
-`MAS-6003` rather than replayed as genuine.
+Records carry a SHA-256 digest wherever they are stored. A modified or truncated
+record is refused with `MAS-6003` rather than replayed as genuine.
+
+### `store.s3` — a store every replica can see
+
+`fs` keeps runs on one machine's disk. In Kubernetes that is usually the pod's,
+so a restart loses the history and a second replica cannot see the first one's
+runs — `GET /api/v1/diagnoses` then answers differently depending on which pod
+takes the request.
+
+```yaml
+store:
+  type: s3
+  s3:
+    endpoint: http://minio:9000        # or https://s3.eu-west-1.amazonaws.com
+    region: us-east-1
+    bucket: mas-runs
+    prefix: prod                       # optional, so one bucket can hold several
+    access_key_id: "${env:MAS_S3_KEY_ID}"
+    secret_access_key: "${env:MAS_S3_SECRET}"
+    path_style: true                   # MinIO, Ceph RGW and most self-hosted
+    timeout: 30s
+```
+
+| Key | Meaning |
+|---|---|
+| `endpoint` | The service URL. Required |
+| `region` | Signing region. Required — MinIO accepts anything, AWS does not |
+| `bucket` | Required |
+| `prefix` | Key prefix, so one bucket can serve several deployments |
+| `access_key_id` / `secret_access_key` | Secrets. Both, or neither for an anonymous bucket |
+| `path_style` | Bucket in the path rather than the hostname. `true` for most self-hosted |
+| `timeout` | Per-request timeout, default `30s` |
+
+Credentials come from configuration only — not from instance metadata and not
+from `~/.aws`, because two more sources are two more ways to be surprised about
+which identity is in use.
+
+**What is stored where.** Each run is a prefix of its own:
+
+```
+<prefix>/runs/<runID>/record.json      written at Create, once more at Finish
+<prefix>/runs/<runID>/steps/0001.json  written once, never again
+```
+
+Nothing is rewritten, so the append-only guarantee holds on a backend that has
+no append — and a run interrupted between those two writes is still readable,
+because its steps were durable when they happened. A reconstructed run keeps
+`status: running`: it is what was recorded, not a claim that it completed.
+
+Bucket policy is bucket policy. Encryption, versioning, object locking,
+lifecycle and retention are configured where the bucket is, by whoever owns it.
+
+`mas doctor` reports which store is in use and, for `s3`, whether the bucket
+answers. If the store fails *after* an analysis is complete, you still get the
+report, with a note saying it was not persisted — losing the answer because we
+could not file it away would be the wrong trade mid-incident.
 
 ## `server`
 

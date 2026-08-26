@@ -234,10 +234,66 @@ ServiceAccount token。
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `type` | `fs` | `fs` 或 `memory` |
+| `type` | `fs` | `fs`、`memory` 或 `s3` |
 | `dir` | `runs` | `fs` 模式下的目录 |
+| `s3.*` | *（无）* | `s3` 模式下的桶配置 |
 
-记录携带 SHA-256 摘要。被修改或被截断的记录会以 `MAS-6003` 被拒绝，而不会被当作真实记录重放。
+无论存放在哪里，记录都携带 SHA-256 摘要。被修改或被截断的记录会以 `MAS-6003` 被拒绝，
+而不会被当作真实记录重放。
+
+### `store.s3` —— 所有副本都能看到的存储
+
+`fs` 把运行记录放在单机磁盘上。在 Kubernetes 中，那通常是 Pod 的磁盘，
+因此一次重启就会丢掉历史，而第二个副本也看不到第一个副本的运行记录 ——
+于是 `GET /api/v1/diagnoses` 的回答会取决于哪个 Pod 接到了请求。
+
+```yaml
+store:
+  type: s3
+  s3:
+    endpoint: http://minio:9000        # 或 https://s3.eu-west-1.amazonaws.com
+    region: us-east-1
+    bucket: mas-runs
+    prefix: prod                       # 可选，便于一个桶承载多套部署
+    access_key_id: "${env:MAS_S3_KEY_ID}"
+    secret_access_key: "${env:MAS_S3_SECRET}"
+    path_style: true                   # MinIO、Ceph RGW 与多数自建部署
+    timeout: 30s
+```
+
+| 键 | 含义 |
+|---|---|
+| `endpoint` | 服务 URL。必填 |
+| `region` | 签名所用 region。必填 —— MinIO 接受任意值，AWS 不接受 |
+| `bucket` | 必填 |
+| `prefix` | 键前缀，便于一个桶服务多套部署 |
+| `access_key_id` / `secret_access_key` | 密钥。要么都填，要么都留空（匿名桶） |
+| `path_style` | 把桶放在路径而不是主机名里。多数自建部署应为 `true` |
+| `timeout` | 单请求超时，默认 `30s` |
+
+凭据只来自配置 —— 不来自实例元数据，也不来自 `~/.aws`，
+因为多两个来源就意味着多两种"搞不清用的是哪个身份"的意外。
+
+**什么东西存在哪里。** 每次运行各占一个前缀：
+
+```
+<prefix>/runs/<runID>/record.json      Create 时写入，Finish 时再写一次
+<prefix>/runs/<runID>/steps/0001.json  只写一次，此后不再写
+```
+
+没有任何东西被重写，因此"只追加"的保证在一个没有 append 的后端上依然成立 ——
+并且一次在这两次写入之间被打断的运行仍然可读，
+因为它的步骤在发生的当时就已经持久化了。
+重建出的运行会保持 `status: running`：
+它是被记录下来的样子，而不是"它完成了"的主张。
+
+桶策略归桶策略。加密、版本控制、对象锁定、生命周期与保留，
+都在配置桶的地方、由拥有桶的人来配置。
+
+`mas doctor` 会报告当前使用的是哪种存储；对 `s3` 还会报告该桶是否应答。
+如果存储是在分析**完成之后**才失败的，你仍然会拿到报告，
+并附有一条"未持久化"的说明 ——
+因为没能把答案归档就把答案一起丢掉，在故障处置中是错误的交易。
 
 ## `server`
 

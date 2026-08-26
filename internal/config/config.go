@@ -6,6 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -250,9 +251,32 @@ type RunConfig struct {
 
 // StoreConfig selects where run records live.
 type StoreConfig struct {
-	Type string `yaml:"type" json:"type"` // fs | memory
-	Dir  string `yaml:"dir" json:"dir"`
+	Type string   `yaml:"type" json:"type"` // fs | memory | s3
+	Dir  string   `yaml:"dir" json:"dir"`
+	S3   S3Config `yaml:"s3" json:"s3"`
 }
+
+// S3Config points the run store at an S3-compatible bucket: AWS S3, MinIO,
+// Ceph RGW, or anything else speaking the same subset. It is what makes the
+// audit trail shared between replicas rather than private to one pod's disk.
+type S3Config struct {
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	Region   string `yaml:"region" json:"region"`
+	Bucket   string `yaml:"bucket" json:"bucket"`
+	Prefix   string `yaml:"prefix" json:"prefix"`
+	// Credentials come from configuration only. Instance metadata and ~/.aws
+	// would be two more code paths and two more ways to be surprised about
+	// which identity is in use.
+	AccessKeyID     Secret `yaml:"access_key_id" json:"access_key_id"`
+	SecretAccessKey Secret `yaml:"secret_access_key" json:"secret_access_key"`
+	// PathStyle puts the bucket in the path rather than the host, which is what
+	// self-hosted deployments almost always need.
+	PathStyle bool     `yaml:"path_style" json:"path_style"`
+	Timeout   Duration `yaml:"timeout" json:"timeout"`
+}
+
+// Configured reports whether an object store has been asked for.
+func (c S3Config) Configured() bool { return strings.TrimSpace(c.Endpoint) != "" }
 
 // ServerConfig configures the HTTP surface.
 type ServerConfig struct {

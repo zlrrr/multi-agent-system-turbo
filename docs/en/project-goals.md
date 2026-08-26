@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.2.0 · **Status**: approved · **Date**: 2026-08-26
+> **Version**: 1.2.1 · **Status**: approved · **Date**: 2026-08-26
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -204,7 +204,7 @@ disconnected parts.
 | Rank | Item | Goals | Note |
 |---|---|---|---|
 | P3-1 | AuthN/AuthZ on the HTTP API | — | Delivered (`specs/009-api-authentication`): bearer tokens with `read`/`diagnose` scopes, a refusal to bind off-host without them, and the principal recorded on the run |
-| P3-2 | Durable run store (beyond filesystem) | G1.4 | — |
+| P3-2 | Durable run store (beyond filesystem) | G1.4 | Delivered (`specs/010-object-run-store`): any S3-compatible bucket, shared by every replica, with each step an immutable object and an interrupted run still readable |
 | P3-3 | Multi-tenant target registry | — | — |
 | P3-4 | Web UI | NG-6 lifted | — |
 
@@ -215,7 +215,7 @@ disconnected parts.
 | **M1** | `make ci` green; container image runs `mas diagnose` end-to-end against a mock provider and a fixture telemetry stack; report produced; manual published; release workflow produces artifacts | **Met.** `make ci` green (format, vet, lint, race tests, SDD checks, build); `make demo` produces English and Chinese reports from stub telemetry with no credentials; a container running as uid 65532 completes a diagnosis and returns the documented exit codes; bilingual manual, configuration and error-code references published |
 | M2 | All six knowledge packs pass their pack-conformance tests **(met)**; Kubernetes in-container `exec` **(met, opt-out, same allow-list as the host)**; ≥4 topologies selectable **(met: five, all against one conformance contract)** | Source fallback already proven under simulated network failure (delivered in M1) |
 | M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command | **Met, and the milestone is complete.** `mas eval --matrix` runs 22 cases against all five topologies in about a second and gates on a recorded baseline. Mutation-tested in both directions and on both gates: widening a pack rule turns cells `WRONG`, narrowing one turns them `MISS`, and removing a version range turns the KRaft case red. Every ranked M3 item — P2-1 through P2-4 — is delivered |
-| M4 | API authenticated; run store pluggable; UI serving reports | **Two of three met.** The API authenticates and authorises per route, and refuses to bind off-host without credentials and TLS. The run store has been pluggable behind `RunStore` since M1. The UI is the remaining item |
+| M4 | API authenticated; run store pluggable; UI serving reports | **Two of three met.** The API authenticates and authorises per route, and refuses to bind off-host without credentials and TLS. The run store is pluggable and now has a shared, durable backend as well as the filesystem one. The UI is the remaining item |
 
 ## 7. Measures of success
 
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.2.1 | 2026-08-26 | M4's P3-2 recorded as delivered: run records can live in an S3-compatible bucket rather than one machine's disk, so replicas agree about history and a pod restart does not erase it. SigV4 is implemented from the specification and proven against its published vectors, keeping `go.mod` unchanged | Backlog reflects delivered scope; no goal changed | `specs/010-object-run-store/` |
 | 1.2.0 | 2026-08-26 | M4's P3-1 recorded as delivered: the API authenticates, authorises per route by scope, and records who asked on the run it caused. The requirement attaches to the bind address rather than a flag, so a loopback developer workflow is unchanged and an exposed one cannot be unauthenticated by omission | Backlog reflects delivered scope; no goal changed | `specs/009-api-authentication/` |
 | 1.1.9 | 2026-08-26 | M3's exit note reconciled: it said the milestone's backlog was still open, which stopped being true when P2-2 and P2-4 landed. Recorded because a status line that is stale is worse than one that is absent — it is read as current | Status only; no goal or backlog changed | `docs/en/project-goals.md` |
 | 1.1.8 | 2026-08-26 | M3's P2-4 recorded as delivered, completing every ranked item under M3: a run is compared against a recorded baseline cell by cell, regressions and improvements are reported side by side and never netted, and a cell that legitimately cannot pass is recorded rather than deleted — which is what stops the absolute gate from making case deletion the cheapest way to a green build | Backlog reflects delivered scope; no goal changed | `specs/008-regression-baselines/` |
