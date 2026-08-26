@@ -378,6 +378,7 @@ comparable on identical cases.`,
 func newPacksCmd(e *env) *cobra.Command {
 	var asJSON bool
 	var showID string
+	var version string
 	cmd := &cobra.Command{
 		Use:   "packs",
 		Short: "List loaded knowledge packs, or print one in detail",
@@ -391,13 +392,31 @@ func newPacksCmd(e *env) *cobra.Command {
 			lib := svc.Library()
 			if showID != "" {
 				for _, p := range lib.All() {
-					if p.ID() == showID || p.Metadata.Middleware == showID {
-						if asJSON {
-							return writeJSON(e.out, p)
-						}
-						fmt.Fprintln(e.out, p.Summary(svc.Config().Run.Language))
-						return nil
+					if p.ID() != showID && p.Metadata.Middleware != showID {
+						continue
 					}
+					// With a version, print what a diagnosis on it would
+					// actually use, and what it would skip. Same resolution,
+					// same sentences as a report — a preview that reimplemented
+					// either would be a second thing to keep in step.
+					var gaps []core.Gap
+					if version != "" {
+						p, gaps = p.Resolve(version)
+					}
+					if asJSON {
+						return writeJSON(e.out, struct {
+							Pack    any        `json:"pack"`
+							Skipped []core.Gap `json:"skipped,omitempty"`
+						}{Pack: p, Skipped: gaps})
+					}
+					fmt.Fprintln(e.out, p.Summary(svc.Config().Run.Language))
+					for _, g := range gaps {
+						fmt.Fprintf(e.out, "%s  %s\n", g.Code, g.Detail)
+						if g.Impact != "" {
+							fmt.Fprintf(e.out, "          %s\n", wrap(g.Impact, 92, "          "))
+						}
+					}
+					return nil
 				}
 				return errs.New("MAS-5003", showID)
 			}
@@ -423,6 +442,8 @@ func newPacksCmd(e *env) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
 	cmd.Flags().StringVar(&showID, "show", "", "print one pack in detail, by id or middleware")
+	cmd.Flags().StringVar(&version, "version", "",
+		"with --show, resolve the pack for this middleware version and report what it skips")
 	return cmd
 }
 

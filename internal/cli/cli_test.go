@@ -612,3 +612,51 @@ expect:
 		t.Errorf("a missing case directory exited %d with %q", code, errOut)
 	}
 }
+
+// TestPacksCommandShowsVersionScoping is FR-013 of feature 007. An author who
+// cannot see the scoping they wrote will write it twice; an operator who cannot
+// preview a resolution has to run a diagnosis to find out what it would skip.
+func TestPacksCommandShowsVersionScoping(t *testing.T) {
+	h := newHarness(t)
+
+	// Unresolved: the ranges are part of what the pack says.
+	out, _, code := h.run("packs", "--show", "kafka")
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "<4.0") {
+		t.Errorf("the pack detail does not show the range an author wrote:\n%s", out)
+	}
+
+	// Resolved: what a diagnosis on that version would actually use, and what
+	// it would skip.
+	scoped, _, code := h.run("packs", "--show", "kafka", "--version", "4.0.1")
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, scoped)
+	}
+	if !strings.Contains(scoped, "MAS-5019") || !strings.Contains(scoped, "4.0.1") {
+		t.Fatalf("the preview does not report what it skipped:\n%s", scoped)
+	}
+	// The skipped rule must be named in the skipped section and nowhere above
+	// it: listed among the pack's rules it would read as available.
+	available, skipped, _ := strings.Cut(scoped, "MAS-5019")
+	if strings.Contains(available, "zk_session_expired") {
+		t.Errorf("a rule excluded by version 4.0.1 is still listed as available:\n%s", available)
+	}
+	if !strings.Contains(skipped, "zk_session_expired") {
+		t.Errorf("the preview does not name what it skipped:\n%s", skipped)
+	}
+
+	// A version that keeps everything must say so rather than printing an
+	// empty "skipped" section that reads like a failure.
+	kept, _, code := h.run("packs", "--show", "kafka", "--version", "3.7.0")
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, kept)
+	}
+	if !strings.Contains(kept, "zk_session_expired") {
+		t.Errorf("version 3.7.0 should keep the ZooKeeper pattern:\n%s", kept)
+	}
+	if strings.Contains(kept, "MAS-5019") {
+		t.Errorf("nothing was skipped, yet the preview reported a gap:\n%s", kept)
+	}
+}

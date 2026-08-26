@@ -33,23 +33,32 @@ type Metadata struct {
 	Version      string `yaml:"version" json:"version"`
 	VersionRange string `yaml:"versionRange" json:"version_range"`
 	Source       string `yaml:"-" json:"source,omitempty"` // file the pack was loaded from
+	// ResolvedFor records the version this pack was resolved against, empty on
+	// a pack straight from the library. It makes the difference observable,
+	// which is how a test can assert a run never uses an unresolved pack.
+	ResolvedFor string `yaml:"-" json:"resolved_for,omitempty"`
 }
 
 // Signal is a named, parameterised PromQL fragment. Playbooks reference signals
 // by id so the query lives in one place and can be corrected once.
 type Signal struct {
-	ID          string `yaml:"id" json:"id"`
-	PromQL      string `yaml:"promql" json:"promql"`
-	Unit        string `yaml:"unit" json:"unit"`
-	Description Text   `yaml:"description" json:"description"`
+	ID     string `yaml:"id" json:"id"`
+	PromQL string `yaml:"promql" json:"promql"`
+	// VersionRange scopes this signal to the versions that export it. Empty
+	// means every version, which is what every rule written before feature 007
+	// says by saying nothing.
+	VersionRange string `yaml:"versionRange" json:"version_range,omitempty"`
+	Unit         string `yaml:"unit" json:"unit"`
+	Description  Text   `yaml:"description" json:"description"`
 }
 
 // LogPattern maps a recognisable log line to its meaning.
 type LogPattern struct {
-	ID       string `yaml:"id" json:"id"`
-	Regex    string `yaml:"regex" json:"regex"`
-	Severity string `yaml:"severity" json:"severity"`
-	Meaning  Text   `yaml:"meaning" json:"meaning"`
+	ID           string `yaml:"id" json:"id"`
+	Regex        string `yaml:"regex" json:"regex"`
+	VersionRange string `yaml:"versionRange" json:"version_range,omitempty"`
+	Severity     string `yaml:"severity" json:"severity"`
+	Meaning      Text   `yaml:"meaning" json:"meaning"`
 
 	compiled *regexp.Regexp
 }
@@ -72,6 +81,7 @@ type Advice struct {
 // FailureMode is a named way this middleware goes wrong.
 type FailureMode struct {
 	ID              string   `yaml:"id" json:"id"`
+	VersionRange    string   `yaml:"versionRange" json:"version_range,omitempty"`
 	Title           Text     `yaml:"title" json:"title"`
 	Explanation     Text     `yaml:"explanation" json:"explanation"`
 	Symptoms        []string `yaml:"symptoms" json:"symptoms"`
@@ -111,32 +121,40 @@ type Conclude struct {
 // Step is one ordered unit of a playbook: exactly one of Collect, Evaluate or
 // Conclude.
 type Step struct {
-	ID       string    `yaml:"id" json:"id"`
-	Collect  *Collect  `yaml:"collect" json:"collect,omitempty"`
-	Evaluate string    `yaml:"evaluate" json:"evaluate,omitempty"`
-	OnTrue   *Branch   `yaml:"onTrue" json:"on_true,omitempty"`
-	OnFalse  *Branch   `yaml:"onFalse" json:"on_false,omitempty"`
-	Conclude *Conclude `yaml:"conclude" json:"conclude,omitempty"`
-	Optional bool      `yaml:"optional" json:"optional,omitempty"`
+	ID string `yaml:"id" json:"id"`
+	// VersionRange scopes one check inside a playbook that otherwise applies
+	// everywhere — the common case when a version adds a check rather than a
+	// subsystem.
+	VersionRange string    `yaml:"versionRange" json:"version_range,omitempty"`
+	Collect      *Collect  `yaml:"collect" json:"collect,omitempty"`
+	Evaluate     string    `yaml:"evaluate" json:"evaluate,omitempty"`
+	OnTrue       *Branch   `yaml:"onTrue" json:"on_true,omitempty"`
+	OnFalse      *Branch   `yaml:"onFalse" json:"on_false,omitempty"`
+	Conclude     *Conclude `yaml:"conclude" json:"conclude,omitempty"`
+	Optional     bool      `yaml:"optional" json:"optional,omitempty"`
 }
 
 // Playbook is a deterministic diagnostic procedure. Running one makes no model
 // calls at all (FR-008).
 type Playbook struct {
-	ID          string   `yaml:"id" json:"id"`
-	Title       Text     `yaml:"title" json:"title"`
-	Matches     []string `yaml:"matches" json:"matches"`
-	Description Text     `yaml:"description" json:"description"`
-	Steps       []Step   `yaml:"steps" json:"steps"`
+	ID           string   `yaml:"id" json:"id"`
+	VersionRange string   `yaml:"versionRange" json:"version_range,omitempty"`
+	Title        Text     `yaml:"title" json:"title"`
+	Matches      []string `yaml:"matches" json:"matches"`
+	Description  Text     `yaml:"description" json:"description"`
+	Steps        []Step   `yaml:"steps" json:"steps"`
 }
 
 // Inspect is a read-only command an adapter may run for this middleware. The
 // guard re-validates it at call time regardless of what a pack claims.
 type Inspect struct {
-	ID          string   `yaml:"id" json:"id"`
-	Binary      string   `yaml:"binary" json:"binary"`
-	Args        []string `yaml:"args" json:"args"`
-	Description Text     `yaml:"description" json:"description"`
+	ID string `yaml:"id" json:"id"`
+	// VersionRange scopes a command to the versions that accept it: a flag
+	// changing between releases is the most frequent version break in a pack.
+	VersionRange string   `yaml:"versionRange" json:"version_range,omitempty"`
+	Binary       string   `yaml:"binary" json:"binary"`
+	Args         []string `yaml:"args" json:"args"`
+	Description  Text     `yaml:"description" json:"description"`
 }
 
 // SourceHints tell the source fetcher where this middleware's code lives.
@@ -250,11 +268,24 @@ func (p *Pack) Summary(lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Middleware: %s (knowledge pack %s v%s)\n",
 		p.Metadata.Middleware, p.Metadata.Name, p.Metadata.Version)
+	if p.Metadata.ResolvedFor != "" {
+		fmt.Fprintf(&b, "Resolved for version %s\n", p.Metadata.ResolvedFor)
+	}
+
+	// Ranges are shown only on an unresolved pack. A resolved one is what a run
+	// holds, and its rules all apply by construction — printing a range into an
+	// agent's prompt would be noise the model has to read past.
+	scope := func(raw string) string {
+		if raw == "" || p.Metadata.ResolvedFor != "" {
+			return ""
+		}
+		return " {" + raw + "}"
+	}
 
 	if len(p.FailureModes) > 0 {
 		b.WriteString("\nKnown failure modes:\n")
 		for _, f := range p.FailureModes {
-			fmt.Fprintf(&b, "- %s (%s): %s\n", f.ID, f.Severity, f.Title.In(lang))
+			fmt.Fprintf(&b, "- %s%s (%s): %s\n", f.ID, scope(f.VersionRange), f.Severity, f.Title.In(lang))
 			if s := f.Explanation.In(lang); s != "" {
 				fmt.Fprintf(&b, "  %s\n", s)
 			}
@@ -263,13 +294,15 @@ func (p *Pack) Summary(lang string) string {
 	if len(p.Signals) > 0 {
 		b.WriteString("\nAvailable metric signals (reference by id in PromQL, or use the expression directly):\n")
 		for _, s := range p.Signals {
-			fmt.Fprintf(&b, "- %s [%s]: %s\n    %s\n", s.ID, s.Unit, s.Description.In(lang), s.PromQL)
+			fmt.Fprintf(&b, "- %s%s [%s]: %s\n    %s\n",
+				s.ID, scope(s.VersionRange), s.Unit, s.Description.In(lang), s.PromQL)
 		}
 	}
 	if len(p.LogPatterns) > 0 {
 		b.WriteString("\nSignificant log patterns:\n")
 		for _, l := range p.LogPatterns {
-			fmt.Fprintf(&b, "- %s (%s): /%s/ — %s\n", l.ID, l.Severity, l.Regex, l.Meaning.In(lang))
+			fmt.Fprintf(&b, "- %s%s (%s): /%s/ — %s\n",
+				l.ID, scope(l.VersionRange), l.Severity, l.Regex, l.Meaning.In(lang))
 		}
 	}
 	return b.String()
@@ -410,6 +443,60 @@ var (
 	validRisks      = map[string]bool{"low": true, "medium": true, "high": true}
 )
 
+// idTracker enforces the variant rule: a rule id may repeat only when every one
+// of its declarations carries a version range and no two of those ranges
+// overlap. That is what lets one id have two expressions across a rename
+// (specs/007-version-scoped-rules/design-hld.md §3).
+//
+// An unscoped declaration overlaps everything, so a repeat where either side is
+// unscoped stays the plain duplicate it has always been, with the message it
+// has always had.
+type idTracker struct {
+	kind  string
+	seen  map[string][]string // id -> ranges declared for it, in order
+	paths map[string][]string // id -> the path of each declaration
+}
+
+// checkRange rejects a rule range that does not parse. The pack-level range is
+// checked the same way and reported as MAS-5004; a rule's is a schema problem
+// with a path, which is what an author needs to find it.
+func checkRange(raw, path string, p *Pack) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	if _, err := parseVersionRange(raw); err != nil {
+		return errs.New("MAS-5001", p.sourceLabel(), path+".versionRange", err.Error())
+	}
+	return nil
+}
+
+func newIDTracker(kind string) *idTracker {
+	return &idTracker{kind: kind, seen: map[string][]string{}, paths: map[string][]string{}}
+}
+
+// declared reports whether an id was declared at all, in any version range.
+// Reference checks ask this and not "is it available for version X": a step
+// referencing a signal that exists only for other versions is correct YAML, and
+// resolution is what decides whether the step survives for a given deployment.
+func (t *idTracker) declared(id string) bool { return len(t.seen[id]) > 0 }
+
+// add records a declaration, returning the error it conflicts with, if any.
+func (t *idTracker) add(id, versionRange, path, source string) error {
+	for i, prior := range t.seen[id] {
+		if strings.TrimSpace(prior) == "" || strings.TrimSpace(versionRange) == "" {
+			return errs.New("MAS-5001", source, path+".id",
+				"duplicate "+t.kind+" id "+id)
+		}
+		if rangesOverlap(prior, versionRange) {
+			return errs.New("MAS-5016", source, t.kind, id, prior, versionRange,
+				t.paths[id][i], path)
+		}
+	}
+	t.seen[id] = append(t.seen[id], versionRange)
+	t.paths[id] = append(t.paths[id], path)
+	return nil
+}
+
 // Validate checks a pack against the published schema, reporting the first
 // problem with the path that caused it (FR-007).
 func (p *Pack) Validate() error {
@@ -435,16 +522,18 @@ func (p *Pack) Validate() error {
 		return errs.New("MAS-5004", p.sourceLabel(), p.Metadata.VersionRange)
 	}
 
-	signalIDs := map[string]bool{}
+	signalIDs := newIDTracker("signal")
 	for i, s := range p.Signals {
 		path := fmt.Sprintf("signals[%d]", i)
 		if s.ID == "" {
 			return bad(path+".id", "must be set")
 		}
-		if signalIDs[s.ID] {
-			return bad(path+".id", "duplicate signal id "+s.ID)
+		if err := checkRange(s.VersionRange, path, p); err != nil {
+			return err
 		}
-		signalIDs[s.ID] = true
+		if err := signalIDs.add(s.ID, s.VersionRange, path, p.sourceLabel()); err != nil {
+			return err
+		}
 		if s.PromQL == "" {
 			return bad(path+".promql", "must be set")
 		}
@@ -453,17 +542,19 @@ func (p *Pack) Validate() error {
 		}
 	}
 
-	patternIDs := map[string]bool{}
+	patternIDs := newIDTracker("log pattern")
 	for i := range p.LogPatterns {
 		lp := &p.LogPatterns[i]
 		path := fmt.Sprintf("logPatterns[%d]", i)
 		if lp.ID == "" {
 			return bad(path+".id", "must be set")
 		}
-		if patternIDs[lp.ID] {
-			return bad(path+".id", "duplicate log pattern id "+lp.ID)
+		if err := checkRange(lp.VersionRange, path, p); err != nil {
+			return err
 		}
-		patternIDs[lp.ID] = true
+		if err := patternIDs.add(lp.ID, lp.VersionRange, path, p.sourceLabel()); err != nil {
+			return err
+		}
 		re, err := regexp.Compile(lp.Regex)
 		if err != nil {
 			return bad(path+".regex", err.Error())
@@ -477,16 +568,18 @@ func (p *Pack) Validate() error {
 		}
 	}
 
-	modeIDs := map[string]bool{}
+	modeIDs := newIDTracker("failure mode")
 	for i, f := range p.FailureModes {
 		path := fmt.Sprintf("failureModes[%d]", i)
 		if f.ID == "" {
 			return bad(path+".id", "must be set")
 		}
-		if modeIDs[f.ID] {
-			return bad(path+".id", "duplicate failure mode id "+f.ID)
+		if err := checkRange(f.VersionRange, path, p); err != nil {
+			return err
 		}
-		modeIDs[f.ID] = true
+		if err := modeIDs.add(f.ID, f.VersionRange, path, p.sourceLabel()); err != nil {
+			return err
+		}
 		if !f.Title.Complete() {
 			return bad(path+".title", "must provide both en and zh text")
 		}
@@ -507,32 +600,36 @@ func (p *Pack) Validate() error {
 		}
 	}
 
-	playbookIDs := map[string]bool{}
+	playbookIDs := newIDTracker("playbook")
 	for i, pb := range p.Playbooks {
 		path := fmt.Sprintf("playbooks[%d]", i)
 		if pb.ID == "" {
 			return bad(path+".id", "must be set")
 		}
-		if playbookIDs[pb.ID] {
-			return bad(path+".id", "duplicate playbook id "+pb.ID)
+		if err := checkRange(pb.VersionRange, path, p); err != nil {
+			return err
 		}
-		playbookIDs[pb.ID] = true
+		if err := playbookIDs.add(pb.ID, pb.VersionRange, path, p.sourceLabel()); err != nil {
+			return err
+		}
 		if !pb.Title.Complete() {
 			return bad(path+".title", "must provide both en and zh text")
 		}
 		if len(pb.Steps) == 0 {
 			return bad(path+".steps", "a playbook must have at least one step")
 		}
-		stepIDs := map[string]bool{}
+		stepIDs := newIDTracker("step")
 		for j, st := range pb.Steps {
 			sp := fmt.Sprintf("%s.steps[%d]", path, j)
 			if st.ID == "" {
 				return bad(sp+".id", "must be set")
 			}
-			if stepIDs[st.ID] {
-				return bad(sp+".id", "duplicate step id "+st.ID)
+			if err := checkRange(st.VersionRange, sp, p); err != nil {
+				return err
 			}
-			stepIDs[st.ID] = true
+			if err := stepIDs.add(st.ID, st.VersionRange, sp, p.sourceLabel()); err != nil {
+				return err
+			}
 
 			declared := 0
 			for _, present := range []bool{st.Collect != nil, st.Evaluate != "", st.Conclude != nil} {
@@ -552,12 +649,12 @@ func (p *Pack) Validate() error {
 					return bad(sp+".collect.as", "must name the slot the result binds to")
 				}
 				for _, ref := range signalRefs(st.Collect.Args) {
-					if !signalIDs[ref] {
+					if !signalIDs.declared(ref) {
 						return errs.New("MAS-5012", pb.ID, ref)
 					}
 				}
 			}
-			if st.Conclude != nil && !modeIDs[st.Conclude.FailureMode] {
+			if st.Conclude != nil && !modeIDs.declared(st.Conclude.FailureMode) {
 				return bad(sp+".conclude.failureMode", "unknown failure mode "+st.Conclude.FailureMode)
 			}
 			for name, br := range map[string]*Branch{"onTrue": st.OnTrue, "onFalse": st.OnFalse} {
@@ -586,16 +683,18 @@ func (p *Pack) Validate() error {
 		}
 	}
 
-	inspectIDs := map[string]bool{}
+	inspectIDs := newIDTracker("inspect")
 	for i, in := range p.Inspect {
 		path := fmt.Sprintf("inspect[%d]", i)
 		if in.ID == "" {
 			return bad(path+".id", "must be set")
 		}
-		if inspectIDs[in.ID] {
-			return bad(path+".id", "duplicate inspect id "+in.ID)
+		if err := checkRange(in.VersionRange, path, p); err != nil {
+			return err
 		}
-		inspectIDs[in.ID] = true
+		if err := inspectIDs.add(in.ID, in.VersionRange, path, p.sourceLabel()); err != nil {
+			return err
+		}
 		if in.Binary == "" {
 			return bad(path+".binary", "must be set")
 		}

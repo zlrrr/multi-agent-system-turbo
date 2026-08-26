@@ -281,65 +281,12 @@ func missingReferences(expression string, env map[string]any) []string {
 // references made every log-pattern check look like it depended on slots that
 // were never collected, so the engine skipped it and reported a gap instead of
 // running it.
-func identifiers(s string) []string {
-	var out []string
-	var cur strings.Builder
-	prevWasDot := false
-	flush := func() {
-		if cur.Len() > 0 {
-			if !prevWasDot {
-				out = append(out, cur.String())
-			}
-			cur.Reset()
-		}
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\'' || c == '"' || c == '`' {
-			flush()
-			prevWasDot = false
-			// Skip to the closing quote. An unterminated literal cannot compile,
-			// so consuming the remainder costs nothing.
-			for i++; i < len(s) && s[i] != c; i++ {
-				if s[i] == '\\' && c != '`' {
-					i++
-				}
-			}
-			continue
-		}
-		switch {
-		case c == '_' || c == '.' && cur.Len() > 0:
-			if c == '.' {
-				flush()
-				prevWasDot = true
-				continue
-			}
-			cur.WriteByte(c)
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
-			cur.WriteByte(c)
-		case c >= '0' && c <= '9':
-			if cur.Len() > 0 {
-				cur.WriteByte(c)
-			}
-		default:
-			flush()
-			prevWasDot = false
-		}
-	}
-	flush()
-	return out
-}
+// identifiers and isBuiltin delegate to the one scanner in internal/core.
+// There is deliberately no copy here: see the note in internal/core/expr.go for
+// the defect a second copy reintroduces.
+func identifiers(s string) []string { return core.Identifiers(s) }
 
-var builtinIdents = map[string]bool{
-	"true": true, "false": true, "nil": true, "and": true, "or": true, "not": true,
-	"in": true, "matches": true, "contains": true, "startsWith": true, "endsWith": true,
-	"len": true, "all": true, "any": true, "none": true, "one": true, "filter": true,
-	"map": true, "count": true, "sum": true, "avg": true, "min": true, "max": true,
-	"abs": true, "int": true, "float": true, "string": true, "lower": true, "upper": true,
-	"countMatching": true, "ratio": true, "pct": true, "isNaN": true, "finite": true,
-}
-
-func isBuiltin(ident string) bool { return builtinIdents[ident] }
+func isBuiltin(ident string) bool { return core.IsExprBuiltin(ident) }
 
 func evidenceIDs(evs []core.Evidence) []string {
 	out := make([]string, 0, len(evs))

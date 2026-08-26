@@ -131,7 +131,11 @@ logPatterns:
     meaning:
       en: "A controller election ran. Frequent elections indicate an unstable coordination layer."
       zh: "发生了 controller 选举。频繁选举意味着协调层不稳定。"
+  # ZooKeeper was removed in Kafka 4.0 (KIP-500). Against a 4.x cluster this
+  # pattern can only match a line from something else, and a false match on a
+  # critical pattern is worse than no pattern at all.
   - id: zk_session_expired
+    versionRange: "<4.0"
     regex: '(Session expired|Unable to reconnect to ZooKeeper)'
     severity: critical
     meaning:

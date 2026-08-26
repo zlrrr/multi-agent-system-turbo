@@ -322,6 +322,19 @@ func (s *Service) run(ctx context.Context, rec *core.RunRecord, req core.Diagnos
 	prepGaps = append(prepGaps, s.registerSourceTools(registry, target)...)
 
 	pack, packErr := s.library.For(target.Kind, target.Version)
+	if packErr == nil {
+		// Version scoping is resolved once, here, and what comes back is the
+		// pack the rest of the run holds. Filtering at each lookup instead
+		// would make this something five call sites have to remember, and a
+		// caller that forgot would silently get unscoped behaviour
+		// (specs/007-version-scoped-rules/plan.md §1).
+		var scopeGaps []core.Gap
+		pack, scopeGaps = pack.Resolve(target.Version)
+		prepGaps = append(prepGaps, scopeGaps...)
+		for _, g := range scopeGaps {
+			log.Info("version scoping", "code", g.Code, "detail", g.Detail)
+		}
+	}
 	if packErr != nil {
 		prepGaps = append(prepGaps, core.Gap{
 			Intent: "load knowledge for " + string(target.Kind), Reason: core.GapNotConfigured,

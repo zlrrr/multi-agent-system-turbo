@@ -97,6 +97,10 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-5013` | warn | `PlaybookBudgetExceeded` | playbook %s exceeded its step budget of %d | Split the playbook, or raise run.budget.max_steps. |
 | `MAS-5014` | error | `PlaybookStepInvalid` | playbook %s step %s is invalid: %s | A step must declare exactly one of collect, evaluate or conclude. |
 | `MAS-5015` | warn | `CheckNotPerformed` | playbook %s step %s was skipped: %s | The check had no data to read, so its failure mode is neither confirmed nor ruled out. Check that the signal exists in this deployment. |
+| `MAS-5016` | error | `RuleRangesOverlap` | two declarations of %s id %q have overlapping version ranges %q and %q (%s, %s) | A rule id may repeat only as version variants, and two variants must not both apply to any version. Narrow one of the ranges, or give the rules different ids. |
+| `MAS-5017` | warn | `NoVariantApplies` | %s %q has version variants but none applies to version %s | The pack covers this version but cannot place this rule in it. Widen one variant's range, or add one for this version. |
+| `MAS-5018` | warn | `VersionUnknownForVariants` | %s %q has version-specific variants and the target's version is unknown | Set `targets[].version` so the right variant can be chosen. Picking one without a version would query a metric name that may not exist and read its absence as data. |
+| `MAS-5019` | info | `RulesNotApplicable` | %d rule(s) do not apply to version %s: %s | Nothing was lost: these checks do not exist for this version. They are listed so a reader can tell version scoping from a check that failed to run. |
 
 ## Run storage
 

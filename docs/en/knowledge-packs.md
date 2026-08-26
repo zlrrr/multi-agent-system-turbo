@@ -260,6 +260,106 @@ means the signal does not exist here.
 
 ---
 
+## 4a. Version-scoped rules
+
+Middleware changes. Kafka 4.0 removed ZooKeeper; Kafka 3.3 added KRaft's raft
+metrics; every major release renames something. A rule written for one side of
+such a boundary is wrong on the other — and wrong in the quiet way, because a
+query for a metric that does not exist returns nothing, and a log pattern for a
+removed subsystem can only match a line from something else.
+
+Any rule may carry a `versionRange`, using the same syntax as
+`metadata.versionRange`:
+
+```yaml
+logPatterns:
+  - id: zk_session_expired
+    versionRange: "<4.0"          # ZooKeeper was removed in Kafka 4.0
+    regex: '(Session expired|Unable to reconnect to ZooKeeper)'
+    severity: critical
+    meaning:
+      en: "The broker lost its ZooKeeper session."
+      zh: "broker 丢失了 ZooKeeper 会话。"
+```
+
+It is accepted on `signals`, `logPatterns`, `failureModes`, `playbooks`,
+individual playbook `steps`, and `inspect` commands. An empty range — which is
+what every rule written before this feature says by saying nothing — means every
+version.
+
+### Variants: one id, two expressions
+
+When a metric is *renamed* rather than removed, declare the id twice with
+disjoint ranges. Playbooks keep referencing one id and the run picks by version:
+
+```yaml
+signals:
+  - id: controller_count
+    versionRange: "<3.3"
+    promql: 'sum(legacy_controller_count{{.selector}})'
+    unit: count
+    description: { en: "active controllers", zh: "活跃 controller 数" }
+  - id: controller_count
+    versionRange: ">=3.3"
+    promql: 'sum(kafka_controller_kafkacontroller_activecontrollercount{{.selector}})'
+    unit: count
+    description: { en: "active controllers", zh: "活跃 controller 数" }
+```
+
+Two rules of the game:
+
+- **Every variant must carry a range.** An unscoped declaration applies to every
+  version, so it overlaps all the others; a repeat where either side is
+  unscoped is the plain duplicate it has always been.
+- **No two ranges may overlap.** `MAS-5016` at load, naming the id and both
+  ranges. A pack that is ambiguous for *some* version is broken for everyone,
+  and finding out during an incident is the worst possible time. Overlap
+  detection errs towards reporting overlap, so a range it rejects may be
+  genuinely disjoint — narrow it rather than arguing with it.
+
+### What happens when the version is unknown
+
+A target with no `version` configured gets different treatment for the two
+cases, because they are two different situations:
+
+| Situation | What happens | Why |
+|---|---|---|
+| A rule declared **once**, with a range | Kept | There is nothing to choose between. If it turns out not to apply, its query returns nothing and the engine records that as a gap already |
+| A rule with **variants** | Dropped, with an itemised `MAS-5018` gap | There is no default — only a choice between metric names, one of which may not exist. Picking one would query it and read its absence as data |
+
+The remedy in that gap is one line: set `targets[].version`.
+
+### Dropping is transitive
+
+Resolution follows the edges. Drop a signal and the step that expands
+`{{signal:…}}` goes with it, because it would otherwise fail mid-diagnosis with
+a template error. Drop that step and any later step reading the slot it bound
+goes too. Drop enough steps and a playbook can no longer reach a conclusion —
+it would spend queries and return findings without a verdict — so it goes as
+well.
+
+All of that is reported as **one** gap per run (`MAS-5019`), naming the version
+and listing what was skipped. It is deliberately not itemised: a correctly
+scoped pack would otherwise put a dozen entries in the gap list, and an operator
+who learns that gaps are mostly noise will miss the one that matters.
+
+Preview any of this without running a diagnosis:
+
+```bash
+mas packs --show kafka                    # every rule, with the ranges you wrote
+mas packs --show kafka --version 4.0.1    # what a diagnosis would use, and what it skips
+```
+
+### Only scope what you can cite
+
+A range invented from memory silently removes a working check, which is worse
+than the gap it was meant to fix. Scope a rule when you can point at the release
+note, the KIP, the changelog entry. When you cannot, leave it unscoped: an
+inapplicable check that returns nothing is already recorded as a gap, and that
+is a smaller error than a check that was never run and never mentioned.
+
+---
+
 ## 5. Conformance floors
 
 Every shipped pack is measured against a floor declared in

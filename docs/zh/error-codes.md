@@ -96,6 +96,10 @@
 | `MAS-5013` | warn | `PlaybookBudgetExceeded` | 剧本 %s 超出其步数预算 %d | 拆分该剧本，或提高 run.budget.max_steps。 |
 | `MAS-5014` | error | `PlaybookStepInvalid` | 剧本 %s 的步骤 %s 非法：%s | 每个步骤必须且只能声明 collect、evaluate、conclude 之一。 |
 | `MAS-5015` | warn | `CheckNotPerformed` | 剧本 %s 的步骤 %s 已跳过：%s | 该检查没有可读取的数据，因此其故障模式既未被确认也未被排除。请确认该信号在当前部署中存在。 |
+| `MAS-5016` | error | `RuleRangesOverlap` | %s id %q 的两次声明版本区间重叠：%q 与 %q（%s、%s） | 规则 id 只能以版本变体的形式重复，且任意两个变体不得同时适用于某个版本。请收窄其中一个区间，或给这两条规则不同的 id。 |
+| `MAS-5017` | warn | `NoVariantApplies` | %s %q 存在版本变体，但没有一个适用于版本 %s | 该知识包覆盖了这个版本，却无法为这条规则在其中定位。请放宽某个变体的区间，或为这个版本补一个变体。 |
+| `MAS-5018` | warn | `VersionUnknownForVariants` | %s %q 存在与版本相关的变体，而目标的版本未知 | 请设置 `targets[].version`，以便选中正确的变体。在没有版本的情况下随便挑一个，会去查询一个可能并不存在的指标名，并把它的“查不到”当成数据来读。 |
+| `MAS-5019` | info | `RulesNotApplicable` | 有 %d 条规则不适用于版本 %s：%s | 没有任何损失：这些检查对该版本本就不存在。列出它们，是为了让读者能区分“版本限定”与“没能跑起来的检查”。 |
 
 ## 运行存储
 

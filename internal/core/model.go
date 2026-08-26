@@ -169,6 +169,12 @@ const (
 	GapTruncated     GapReason = "truncated"
 	GapNotConfigured GapReason = "not_configured"
 	GapUnsupported   GapReason = "unsupported"
+	// GapNotApplicable marks evidence that does not exist for this deployment
+	// rather than evidence that could not be obtained. The distinction is the
+	// whole reason it is a separate reason: "unavailable" is a warning about
+	// this run, while "not applicable" is a note about this version, and
+	// nothing is wrong (specs/007-version-scoped-rules/design-lld.md §5.5).
+	GapNotApplicable GapReason = "not_applicable"
 )
 
 // Gap records evidence that could not be collected. A Gap never aborts a run

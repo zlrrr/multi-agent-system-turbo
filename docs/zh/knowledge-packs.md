@@ -240,6 +240,98 @@ evaluate: "up.empty or up.latest < 1"             # 空 ⇒ 目标已宕机
 
 ---
 
+## 4a. 版本区间限定的规则
+
+中间件是会变的。Kafka 4.0 移除了 ZooKeeper；Kafka 3.3 引入了 KRaft 的 raft 指标；
+每一个大版本都会改掉点什么。为这类边界的一侧写下的规则，在另一侧就是错的 ——
+而且是"安静地错"：查询一个不存在的指标什么也查不到，
+而为一个已被移除的子系统写的日志模式，只可能匹配到别的东西的日志行。
+
+任何规则都可以带上 `versionRange`，语法与 `metadata.versionRange` 相同：
+
+```yaml
+logPatterns:
+  - id: zk_session_expired
+    versionRange: "<4.0"          # ZooKeeper 在 Kafka 4.0 中被移除
+    regex: '(Session expired|Unable to reconnect to ZooKeeper)'
+    severity: critical
+    meaning:
+      en: "The broker lost its ZooKeeper session."
+      zh: "broker 丢失了 ZooKeeper 会话。"
+```
+
+`signals`、`logPatterns`、`failureModes`、`playbooks`、playbook 中的单个 `steps`
+以及 `inspect` 命令都接受该字段。留空区间 ——
+这也正是本特性之前写下的每一条规则"什么都不写"所表达的含义 —— 表示适用于所有版本。
+
+### 变体：一个 id，两段表达式
+
+当一个指标是被**改名**而不是被移除时，用互不重叠的区间把该 id 声明两次。
+playbook 继续引用同一个 id，由本次运行按版本挑选：
+
+```yaml
+signals:
+  - id: controller_count
+    versionRange: "<3.3"
+    promql: 'sum(legacy_controller_count{{.selector}})'
+    unit: count
+    description: { en: "active controllers", zh: "活跃 controller 数" }
+  - id: controller_count
+    versionRange: ">=3.3"
+    promql: 'sum(kafka_controller_kafkacontroller_activecontrollercount{{.selector}})'
+    unit: count
+    description: { en: "active controllers", zh: "活跃 controller 数" }
+```
+
+两条规矩：
+
+- **每个变体都必须带区间。** 未限定的声明适用于所有版本，因此它与其余全部重叠；
+  只要重复的两边有一边未限定，那它就还是它一直以来的那个"重复 id"错误。
+- **任意两个区间不得重叠。** 加载时报 `MAS-5016`，并指出该 id 与两个区间。
+  一个对**某些**版本存在歧义的包，对所有人来说都是坏的；
+  而在故障处置中才发现是最糟的时机。重叠检测偏向于"判为重叠"，
+  因此它拒绝掉的区间有可能确实是不相交的 —— 请收窄它，而不是与它争辩。
+
+### 版本未知时会发生什么
+
+对于没有配置 `version` 的目标，两种情况会被区别对待，因为它们本就是两回事：
+
+| 情形 | 会发生什么 | 为什么 |
+|---|---|---|
+| 只声明了**一次**、带区间的规则 | 保留 | 没有什么需要抉择。如果它其实不适用，它的查询会什么都查不到，而引擎已经会把这记为缺口 |
+| 带**变体**的规则 | 丢弃，并逐条记录 `MAS-5018` 缺口 | 没有默认值 —— 只有在几个指标名之间二选一，而其中某个可能根本不存在。随便挑一个，就是去查询它，并把"查不到"当成数据来读 |
+
+那条缺口给出的处置只有一句话：设置 `targets[].version`。
+
+### 丢弃是会传递的
+
+解析会顺着依赖边走。丢掉一个 signal，展开 `{{signal:…}}` 的那个步骤会一并丢掉 ——
+否则它会在诊断进行到一半时抛出模板错误。丢掉那个步骤后，
+任何后续读取它所绑定槽位的步骤也会一并丢掉。丢掉足够多的步骤后，
+一个 playbook 可能再也无法抵达任何结论 —— 它会花掉查询、返回一堆发现却没有结论 ——
+于是它也被丢掉。
+
+所有这些每次运行只汇总为**一条**缺口（`MAS-5019`），写明版本并列出被跳过的内容。
+它刻意不逐条列出：否则一个限定得当的知识包会在缺口清单里塞进十几条，
+而一旦运维人员学会了"缺口大多是噪音"，他们就会漏掉真正重要的那一条。
+
+不必真的跑一次诊断，就可以预览上述一切：
+
+```bash
+mas packs --show kafka                    # 每条规则，附带你写下的区间
+mas packs --show kafka --version 4.0.1    # 一次诊断实际会用到的内容，以及它会跳过什么
+```
+
+### 只限定你能给出出处的东西
+
+一个凭印象编出来的区间，会悄悄移除一条本来有效的检查 ——
+这比它想修的那个缺口更糟。当你能指出 release note、KIP 或 changelog 条目时，
+再去限定一条规则。指不出来时，就别限定：
+一条不适用的检查什么也查不到，本来就会被记为缺口，
+而这个错误，比"一条从未执行、也从未被提及的检查"要小。
+
+---
+
 ## 5. 一致性下限
 
 每一个已发布的知识包都会按 `internal/knowledge/conformance_test.go` 中声明的下限来度量。
