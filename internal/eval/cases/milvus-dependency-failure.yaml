@@ -1,0 +1,47 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: milvus-dependency-failure
+  middleware: milvus
+  version: "2.4.1"
+  title:
+    en: "Object storage and etcd, not the query nodes"
+    zh: "问题在对象存储与 etcd，而不在 query node"
+  description:
+    en: >-
+      Storage p99 went from 120 ms to 1,800 ms and etcd is timing out. Milvus is
+      a coordinator over external systems, so a dependency failure surfaces as
+      slow search — which is why query-node execution is the first thing to
+      check and the first thing to rule out here: execution stayed under 110 ms
+      and queue wait never exceeded it. Tuning the query nodes would change
+      nothing at all.
+    zh: >-
+      存储 p99 从 120 毫秒升到 1800 毫秒，etcd 出现超时。
+      Milvus 是外部系统之上的协调者，因此依赖故障会以"检索变慢"的形式浮现 ——
+      这也正是为什么 query node 的执行耗时既是第一个要查的，也是这里第一个要排除的：
+      执行始终不超过 110 毫秒，排队等待也从未超过它。调 query node 不会有任何改变。
+
+symptom:
+  en: "search requests are timing out"
+  zh: "检索请求出现超时"
+
+telemetry:
+  metrics:
+    milvus_storage_request_latency_bucket: [120, 900, 1800]
+    milvus_meta_op_count: [0.4, 1.2, 3.1]
+    milvus_proxy_sq_latency_bucket: [200, 900, 2400]
+    milvus_querynode_sq_req_latency_bucket: [80, 95, 110]
+    milvus_querynode_sq_queue_latency_bucket: [40, 50, 60]
+    milvus_proxy_search_vectors_count: [400, 410, 405]
+    milvus_datacoord_index_task_count: [0, 0, 0]
+    # `up` is the milvus pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "etcdserver: request timed out, possibly due to previous leader failure"
+    - "[MinIO] GetObject took 1832ms for segment 447382910283"
+    - "etcdserver: request timed out, possibly due to previous leader failure"
+
+expect:
+  failure_modes: [dependency-failure]
+  not_failure_modes: [query-node-latency, index-build-failure]

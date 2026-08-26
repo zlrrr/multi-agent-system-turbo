@@ -1,0 +1,45 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: redis-connection-saturation
+  middleware: redis
+  version: "7.2.4"
+  title:
+    en: "Clients refused at the maxclients ceiling"
+    zh: "连接数触及 maxclients 上限，客户端被拒绝"
+  description:
+    en: >-
+      Connected clients reached 98.5% of maxclients and rejected connections
+      started climbing. Commands feel slow to the application because they are
+      queued in the client's own pool, not because Redis is slow: CPU is at 21%
+      and the last fork took under a millisecond. That is what separates
+      "connection saturation" from "slow commands", and the two have nothing in
+      common as remedies.
+    zh: >-
+      连接数达到 maxclients 的 98.5%，被拒绝的连接开始增长。
+      应用侧感觉命令变慢，是因为请求排在客户端自己的连接池里，而不是 Redis 变慢了：
+      CPU 占用 21%，最近一次 fork 不到 1 毫秒。这正是"连接饱和"与"命令变慢"的分界，
+      而两者的处理方式毫无共同之处。
+
+symptom:
+  en: "clients are being refused connections and commands feel slow"
+  zh: "客户端连接被拒绝，命令也感觉变慢"
+
+telemetry:
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_connected_clients: [9200, 9600, 9850]
+    redis_config_maxclients: [10000, 10000, 10000]
+    redis_rejected_connections_total: [0, 3, 11]
+    redis_blocked_clients: [0, 0, 0]
+    redis_instantaneous_ops_per_sec: [45000, 46000, 44000]
+    redis_cpu_sys_seconds_total: [0.10, 0.11, 0.10]
+    redis_cpu_user_seconds_total: [0.10, 0.11, 0.11]
+    redis_latest_fork_usec: [900, 950, 1000]
+  logs:
+    - "Error accepting a client connection: max number of clients reached"
+    - "Error accepting a client connection: max number of clients reached"
+
+expect:
+  failure_modes: [connection-saturation]
+  not_failure_modes: [slow-commands, fork-latency, instance-down]

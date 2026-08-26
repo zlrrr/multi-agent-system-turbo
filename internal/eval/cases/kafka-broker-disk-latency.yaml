@@ -1,0 +1,50 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: kafka-broker-disk-latency
+  middleware: kafka
+  version: "3.7.0"
+  title:
+    en: "Produce latency from slow log flushes"
+    zh: "日志刷盘变慢导致生产时延上升"
+  description:
+    en: >-
+      Log flush p99 went from 40 ms to 640 ms and produce latency followed. No
+      produce request actually failed, so the broker is slow rather than
+      rejecting — different remedies, and the failed-request counter is the only
+      thing that tells them apart. Consumer lag is flat and falling, which rules
+      out the answer the word "slow" invites.
+    zh: >-
+      日志刷盘 p99 从 40 毫秒升到 640 毫秒，生产时延随之上升。
+      没有任何一次生产请求真正失败，因此 broker 是"变慢"而不是"在拒绝" ——
+      两者处理方式不同，而唯一能把它们区分开的就是失败请求计数。
+      消费积压平稳且在下降，这排除了"慢"这个字眼会引出的那个答案。
+
+symptom:
+  en: "produce p99 latency spiked and disk flush is slow"
+  zh: "生产 p99 时延骤升，磁盘刷盘变慢"
+
+telemetry:
+  metrics:
+    kafka_brokers: [3, 3, 3]
+    kafka_controller_kafkacontroller_activecontrollercount: [1, 1, 1]
+    kafka_controller_kafkacontroller_offlinepartitionscount: [0, 0, 0]
+    kafka_topic_partition_under_replicated_partition: [0, 0, 0]
+    kafka_log_logflushstats_logflushrateandtimems_bucket: [40, 180, 640]
+    kafka_server_replicamanager_isrshrinks_total: [0, 0, 0]
+    kafka_server_brokertopicmetrics_failedproducerequests_total: [0, 0, 0]
+    kafka_consumergroup_lag: [300, 290, 280]
+    kafka_topic_partition_current_offset: [5000, 5100, 5050]
+  logs:
+    - "[ReplicaManager broker=2] Slow log flush: 640ms for partition orders-3"
+    - "[KafkaApis] Produce request took 712ms to complete"
+
+expect:
+  failure_modes: [broker-disk-latency]
+  not_failure_modes:
+    - produce-failures
+    - consumer-lag-growth
+    - broker-loss
+    - offline-partitions
+    - under-replicated-partitions
+    - controller-instability

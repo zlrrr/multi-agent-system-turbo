@@ -181,22 +181,52 @@ the deployment could tell us.
 
 ## 5. What is in the shipped corpus
 
-One case per knowledge pack, which is the floor a test enforces: a pack with no
-case is knowledge nothing checks.
+21 cases, at least three for every pack. The floor is enforced by a test,
+because one case per pack proves the machinery and not the knowledge: a pack
+with a single case can lose every other failure mode it declares without
+anything going red.
 
-| Case | Middleware | The answer | The plausible wrong answers it rules out |
-|---|---|---|---|
-| `redis-maxmemory-eviction` | Redis | memory pressure | replication broken, persistence failure |
-| `kafka-broker-loss-under-replicated` | Kafka | broker loss, under-replication | offline partitions, controller instability, consumer lag growth |
-| `mongodb-replication-lag-write-concern` | MongoDB | replication lag, write-concern stall | primary election, slow queries, lock contention, connection saturation, storage pressure |
-| `pulsar-subscription-backlog` | Pulsar | subscription backlog | consumer stall, bookie storage pressure |
-| `milvus-query-node-queueing` | Milvus | query-node latency | dependency failure, index build failure |
-| `oceanbase-tenant-memory-exhaustion` | OceanBase | tenant memory exhaustion | tenant CPU throttling, major-merge delay, disk pressure, observer unavailable |
-| `redis-logs-unavailable` | Redis | memory pressure, **with the log source down** | eviction storm, fragmentation, instance down — and the missing logs must be declared |
+| Pack | Cases | The answers they reach |
+|---|---|---|
+| Redis | 5 | memory pressure at maxmemory, persistence failure behind MISCONF, connection saturation at the maxclients ceiling, memory pressure with the log source down, and one healthy instance |
+| Kafka | 3 | broker loss with under-replication, consumer lag growth against a flat produce rate, produce latency from slow log flushes |
+| MongoDB | 4 | replication lag with a write-concern stall, connection saturation, collection scans, and a write-concern stall reached from the log alone with the metric source down |
+| Pulsar | 3 | subscription backlog with consumers attached, publish latency at the broker, not enough bookies for the write quorum |
+| Milvus | 3 | query-node queueing rather than execution, object storage and etcd failing, nodes OOM-killed at the memory ceiling |
+| OceanBase | 3 | one tenant at its own memory ceiling, redo-log replication delay, response time up with throughput flat |
 
-Each one is built so the ruled-out modes are the answers the *symptom* invites
-and the *evidence* denies. That is the point of the corpus: a diagnosis that
-follows the complaint rather than the measurement fails these cases.
+`mas eval` prints them all by id; the YAML in `internal/eval/cases/` is the
+authority on any one of them.
+
+Every case is built so the modes it rules out are the answers the *symptom*
+invites and the *evidence* denies — "consumers are falling behind" when a broker
+was lost, "the disk is filling" when the connection pool is exhausted, "writes
+are slow" when the bookies are fine. A diagnosis that follows the complaint
+rather than the measurement fails these cases.
+
+Two of them are not about a fault at all:
+
+- **`redis-healthy-baseline`** describes an instance where nothing is wrong, and
+  a symptom that still says "latency spike" — because that is what an operator
+  types when the application is slow and Redis is the first suspect. It rules
+  out every mode the pack declares, so a system that invents a fault to have
+  something to say fails it. No correct-answer case can catch that: each of them
+  has an answer to find.
+- **`redis-logs-unavailable`** and **`mongodb-metrics-unavailable`** take a
+  source away and require the run both to reach what the remaining evidence
+  supports and to declare what it could not see.
+
+### Does it catch anything?
+
+Two mutations, run against the shipped packs:
+
+| Mutation | Result |
+|---|---|
+| Redis eviction rule widened from `evicted.avg > 0` to `>= 0` | 3 cases turn `WRONG`, including the healthy one; exit 1 |
+| Kafka under-replication threshold raised from `> 0` to `> 100000` | 1 case turns `MISS`; exit 1 |
+
+A widened rule and a narrowed one fail in different columns, which is the whole
+reason the columns are kept apart.
 
 ## 6. What is deliberately not here
 

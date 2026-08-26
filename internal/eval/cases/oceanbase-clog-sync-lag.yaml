@@ -1,0 +1,46 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: oceanbase-clog-sync-lag
+  middleware: oceanbase
+  version: "4.2.1"
+  title:
+    en: "Redo-log replication delay widens the failover window"
+    zh: "redo 日志复制延迟拉大了切主的数据暴露窗口"
+  description:
+    en: >-
+      Replication delay went from 1.2 s to 12 s. That delay is the data-loss
+      window: losing the leader now would lose everything written inside it.
+      Nothing else is wrong — every observer is in service, no merge error, the
+      log disk is at 46% and the partition count never moved — so the answer is
+      the delay itself rather than any of the cluster-level faults a lagging
+      replica is often a symptom of.
+    zh: >-
+      复制延迟从 1.2 秒增长到 12 秒。这段延迟就是数据丢失窗口：
+      此刻失去 leader，其中写入的一切都会丢失。其余一切正常 ——
+      所有 observer 都在服务、无合并错误、日志盘占用 46%、分区数从未变动 ——
+      因此答案就是这段延迟本身，而不是"副本滞后"常常作为其症状出现的那些集群级故障。
+
+symptom:
+  en: "redo log replication is lagging behind the followers"
+  zh: "redo 日志复制滞后于 follower"
+
+telemetry:
+  metrics:
+    ob_log_sync_delay_seconds: [1.2, 6.5, 12.0]
+    ob_clog_disk_used_bytes: [0.42, 0.44, 0.46]
+    ob_partition_num: [64, 64, 64]
+    ob_server_status: [1, 1, 1]
+    ob_zone_merge_time_seconds: [200, 300, 400]
+    ob_zone_merge_error: [0, 0, 0]
+    ob_disk_used_bytes: [0.55, 0.56, 0.57]
+    # `up` is the oceanbase pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[WARN] clog sync is slow, delay=12043ms replica=2"
+    - "[WARN] log sync delay exceeds threshold, tenant_id=1002"
+
+expect:
+  failure_modes: [clog-sync-lag]
+  not_failure_modes: [observer-unavailable, disk-pressure, major-merge-delay]

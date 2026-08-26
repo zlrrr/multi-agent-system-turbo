@@ -1,0 +1,69 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: redis-healthy-baseline
+  middleware: redis
+  version: "7.2.4"
+  title:
+    en: "A healthy instance, reported as a latency spike"
+    zh: "健康实例，却被报为延迟毛刺"
+  description:
+    en: >-
+      Every reading is nominal and the correct answer is that nothing is wrong.
+      The symptom still says "latency spike", because that is what an operator
+      types when the application is slow and Redis is the first thing they
+      suspect. No amount of correct-answer cases can catch a system that always
+      concludes something — every one of them has an answer to find. This is the
+      case that catches it, so it rules out every failure mode the pack declares.
+    zh: >-
+      所有读数都正常，正确答案是"没有问题"。症状里仍然写着"延迟毛刺"，
+      因为当应用变慢、而运维人员第一个怀疑 Redis 时，他们就是这么写的。
+      再多"有正确答案"的 case，也抓不住一个"总要得出点什么"的系统 ——
+      因为那些 case 里本来就有答案可找。抓住它的正是这个 case，
+      因此它排除了该知识包声明的每一个故障模式。
+
+symptom:
+  en: "p99 latency spike reported by the application"
+  zh: "应用侧报告 p99 延迟毛刺"
+
+telemetry:
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_memory_used_bytes: [300, 305, 310]
+    redis_memory_max_bytes: [1000, 1000, 1000]
+    redis_memory_used_rss_bytes: [360, 365, 370]
+    redis_evicted_keys_total: [0, 0, 0]
+    redis_expired_keys_total: [2, 2, 3]
+    redis_connected_clients: [40, 42, 44]
+    redis_blocked_clients: [0, 0, 0]
+    redis_config_maxclients: [10000, 10000, 10000]
+    redis_rejected_connections_total: [0, 0, 0]
+    redis_instantaneous_ops_per_sec: [12000, 12400, 12100]
+    redis_cpu_sys_seconds_total: [0.06, 0.06, 0.06]
+    redis_cpu_user_seconds_total: [0.06, 0.07, 0.06]
+    redis_latest_fork_usec: [800, 900, 850]
+    redis_mem_fragmentation_ratio: [1.20, 1.15, 1.18]
+    redis_rdb_last_bgsave_status: [1, 1, 1]
+    redis_aof_last_write_status: [1, 1, 1]
+    redis_master_link_up: [1, 1, 1]
+    redis_connected_slaves: [1, 1, 1]
+    redis_master_repl_offset: [1000, 1100, 1200]
+    # The stub serves the value of the whole expression, and this key is the
+    # longest match inside the hit-ratio expression, so the value is the ratio.
+    redis_keyspace_misses_total: [0.98, 0.98, 0.97]
+  logs:
+    - "Background saving terminated with success"
+    - "DB saved on disk"
+
+expect:
+  not_failure_modes:
+    - memory-pressure
+    - eviction-storm
+    - connection-saturation
+    - slow-commands
+    - persistence-failure
+    - fork-latency
+    - replication-broken
+    - fragmentation
+    - cpu-saturation
+    - instance-down

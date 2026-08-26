@@ -1,6 +1,6 @@
 # Task Breakdown: Case Corpus and Evaluation Harness
 
-> **Feature ID**: `006-eval-harness` · **Version**: 1.0.0
+> **Feature ID**: `006-eval-harness` · **Version**: 1.1.0
 > **Bilingual pair**: [`tasks.zh.md`](./tasks.zh.md) · **Upstream**: [`design-lld.md`](./design-lld.md) v1.0.0
 
 ## Legend
@@ -56,6 +56,18 @@ Every test named here must exist: `sddctl verify` checks it.
 | T544 | Fix what the corpus found: a source that is down is a gap under every topology | FR-006 | `TestDownSourceIsAGapUnderEveryTopology` | T541 | done |
 | **G-C** | **Gate C — feature exit** | | `make ci` green | | done |
 
+## Phase F — corpus depth (spec 1.1.0)
+
+| ID | Task | Satisfies | Test / checkpoint | Deps | Status |
+|---|---|---|---|---|---|
+| T550 | Depth floor written before the cases: ≥20 cases, ≥3 per pack | FR-014 | `TestCorpusMeetsTheDepthFloor` | G-C | done |
+| T551 | A healthy deployment concludes nothing | FR-015 | `TestCorpusIncludesAHealthyDeployment` | T550 | done |
+| T552 | Each telemetry source withheld in at least one case | FR-016 | `TestCorpusWithholdsEachSource` | T550 | done |
+| T553 | Two more cases per pack, each against a distinct failure mode | FR-014 | `TestShippedCorpusPasses`, `TestCorpusMeetsTheDepthFloor` | T550 | done |
+| T554 | The deeper corpus still fits the CI budget | NFR-001 | `TestCorpusRunsInsideTheCIBudget` | T553 | done |
+| T555 | Evaluation guide and goals reconciled to the deeper corpus | NFR-003 | `sddctl verify` parity | T553 | done |
+| **G-D** | **Gate D — M3 exit for P2-1** | | `make ci` green; `mas eval --matrix` clean | | done |
+
 ## Checkpoint gates
 
 | Gate | Tasks | Verification command |
@@ -63,6 +75,7 @@ Every test named here must exist: `sddctl verify` checks it.
 | G-A | T501–T503 | `go test ./internal/eval/...` |
 | G-B | T510–T512 | `go test ./internal/eval/...` |
 | G-C | T520–T544 | `make ci` |
+| G-D | T550–T555 | `make ci && bin/mas eval --matrix` |
 
 ## What the corpus found
 
@@ -80,4 +93,5 @@ trusts the second time.
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.1.0 | 2026-08-26 | Phase F from spec 1.1.0: corpus depth | cases, docs |
 | 1.0.0 | 2026-08-25 | Initial task breakdown | case schema, runner, scoring, corpus, docs |

@@ -1,6 +1,6 @@
 # 任务分解：Case 语料库与评测框架
 
-> **特性 ID**：`006-eval-harness` · **版本**：1.0.0
+> **特性 ID**：`006-eval-harness` · **版本**：1.1.0
 > **双语对应文件**：[`tasks.md`](./tasks.md) · **上游**：[`design-lld.zh.md`](./design-lld.zh.md) v1.0.0
 
 ## 图例
@@ -56,6 +56,18 @@
 | T544 | 修复语料库发现的问题：数据源不可用在任何拓扑下都必须是缺口 | FR-006 | `TestDownSourceIsAGapUnderEveryTopology` | T541 | done |
 | **G-C** | **闸门 C —— 特性出口** | | `make ci` 全绿 | | done |
 
+## 阶段 F —— 语料库深度（规格 1.1.0）
+
+| ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
+|---|---|---|---|---|---|
+| T550 | 先写深度下限，再写 case：≥20 个 case，每个知识包 ≥3 个 | FR-014 | `TestCorpusMeetsTheDepthFloor` | G-C | done |
+| T551 | 健康部署不得得出任何结论 | FR-015 | `TestCorpusIncludesAHealthyDeployment` | T550 | done |
+| T552 | 每一类遥测数据源都至少在一个 case 中被扣留 | FR-016 | `TestCorpusWithholdsEachSource` | T550 | done |
+| T553 | 每个知识包再补两个 case，各自针对不同的故障模式 | FR-014 | `TestShippedCorpusPasses`、`TestCorpusMeetsTheDepthFloor` | T550 | done |
+| T554 | 加深后的语料库仍然符合 CI 预算 | NFR-001 | `TestCorpusRunsInsideTheCIBudget` | T553 | done |
+| T555 | 评测指南与目标文档与更深的语料库对齐 | NFR-003 | `sddctl verify` 对等检查 | T553 | done |
+| **G-D** | **闸门 D —— P2-1 的 M3 出口** | | `make ci` 全绿；`mas eval --matrix` 无回归 | | done |
+
 ## 检查点闸门
 
 | 闸门 | 任务 | 验证命令 |
@@ -63,6 +75,7 @@
 | G-A | T501–T503 | `go test ./internal/eval/...` |
 | G-B | T510–T512 | `go test ./internal/eval/...` |
 | G-C | T520–T544 | `make ci` |
+| G-D | T550–T555 | `make ci && bin/mas eval --matrix` |
 
 ## Change Log
 

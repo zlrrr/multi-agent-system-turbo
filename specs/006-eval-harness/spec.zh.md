@@ -1,7 +1,7 @@
 # 特性规格：Case 语料库与评测框架
 
-> **特性 ID**：`006-eval-harness` · **版本**：1.0.0 · **状态**：已批准
-> **双语对应文件**：[`spec.md`](./spec.md) · **上游**：[`docs/zh/project-goals.md`](../../docs/zh/project-goals.md) v1.1.4
+> **特性 ID**：`006-eval-harness` · **版本**：1.1.0 · **状态**：已批准
+> **双语对应文件**：[`spec.md`](./spec.md) · **上游**：[`docs/zh/project-goals.md`](../../docs/zh/project-goals.md) v1.1.5
 > **宪法**：`.specify/memory/constitution.zh.md` v1.0.0 · **下游**：`plan.zh.md`
 
 ## 1. 问题陈述
@@ -72,6 +72,9 @@
 | FR-011 | `mas eval` 必须能从 CLI 跑语料库，且支持两种语言 | P1 | CLI 测试 |
 | FR-012 | 已发布 case 出现回归时 CI 必须失败 | P1 | `make ci` 会跑语料库 |
 | FR-013 | 语料库必须覆盖每一个已发布的知识包 | P1 | `TestEveryPackHasACase` |
+| FR-014 | 语料库必须达到 M3 出口所要求的深度：至少 20 个 case，且每个已发布知识包至少 3 个 | P1 | `TestCorpusMeetsTheDepthFloor` |
+| FR-015 | 语料库必须包含一个健康部署，在其上一次正确的诊断不应得出任何结论 | P1 | `TestCorpusIncludesAHealthyDeployment` |
+| FR-016 | 语料库必须在至少一个 case 中分别扣留每一类遥测数据源，从而对指标与日志都检验诚实性 | P1 | `TestCorpusWithholdsEachSource` |
 
 ## 5. 非功能需求
 
@@ -103,4 +106,5 @@
 
 | 版本 | 日期 | 变更 | 影响 |
 |---|---|---|---|
+| 1.1.0 | 2026-08-26 | 新增语料库深度要求（FR-014…FR-016）：每个知识包一个 case 证明的是机制，而不是知识。只有一个 case 的知识包，可以悄无声息地丢掉其余所有故障模式；而一个从未见过健康部署的语料库，抓不住"为了有话可说而编出一个故障"的系统 | tasks、cases |
 | 1.0.0 | 2026-08-25 | 初版规格 | plan、HLD、LLD、tasks、代码 |

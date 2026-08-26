@@ -171,22 +171,48 @@ expect:
 
 ## 5. 内置语料库里有什么
 
-每个知识包一个 case，这是由测试强制的下限：
-没有 case 的知识包，就是没有任何东西在检查的知识。
+21 个 case，每个知识包至少 3 个。这个下限由测试强制，
+因为"每个知识包一个 case"证明的是机制，而不是知识：
+只有一个 case 的知识包，可以悄无声息地丢掉它所声明的其余每一个故障模式，
+而不会有任何东西变红。
 
-| Case | 中间件 | 正确答案 | 它排除的、看似合理的错误答案 |
-|---|---|---|---|
-| `redis-maxmemory-eviction` | Redis | 内存压力 | 复制中断、持久化失败 |
-| `kafka-broker-loss-under-replicated` | Kafka | broker 丢失、副本不足 | 离线分区、controller 不稳定、消费延迟增长 |
-| `mongodb-replication-lag-write-concern` | MongoDB | 复制滞后、写关注阻塞 | 主节点选举、慢查询、锁竞争、连接饱和、存储压力 |
-| `pulsar-subscription-backlog` | Pulsar | 订阅积压 | 消费者停摆、bookie 存储压力 |
-| `milvus-query-node-queueing` | Milvus | query node 时延 | 依赖故障、索引构建失败 |
-| `oceanbase-tenant-memory-exhaustion` | OceanBase | 租户内存耗尽 | 租户 CPU 限流、major merge 延迟、磁盘压力、observer 不可用 |
-| `redis-logs-unavailable` | Redis | 内存压力，**且日志数据源不可用** | 驱逐风暴、内存碎片、实例宕机 —— 并且必须声明日志缺失 |
+| 知识包 | case 数 | 它们得出的答案 |
+|---|---|---|
+| Redis | 5 | 触及 maxmemory 的内存压力、MISCONF 背后的持久化失败、触及 maxclients 上限的连接饱和、日志源不可用时的内存压力，以及一个健康实例 |
+| Kafka | 3 | broker 丢失伴随副本不足、生产速率平稳下的消费积压增长、刷盘变慢导致的生产时延 |
+| MongoDB | 4 | 复制滞后伴随写关注阻塞、连接饱和、全集合扫描，以及指标源不可用时仅凭日志得出的写关注阻塞 |
+| Pulsar | 3 | 消费者仍在连接时的订阅积压、出在 broker 的发布时延、bookie 数不足以满足写入 quorum |
+| Milvus | 3 | 排队而非执行导致的 query node 时延、对象存储与 etcd 故障、节点在内存上限处被 OOM 杀掉 |
+| OceanBase | 3 | 单个租户顶到自身内存上限、redo 日志复制延迟、吞吐持平而响应时间上升 |
+
+`mas eval` 会按 id 打印全部 case；任何一个 case 的权威定义都在
+`internal/eval/cases/` 下的 YAML 里。
 
 每个 case 的构造方式都是：被排除的模式恰好是**症状**会引诱人去猜、
-而**证据**予以否定的那些答案。这正是语料库的意义所在：
+而**证据**予以否定的那些答案 —— broker 丢失时的"消费者在落后"、
+连接池耗尽时的"磁盘在被填满"、bookie 一切正常时的"写入变慢"。
 一次跟着抱怨走而不跟着测量走的诊断，会在这些 case 上失败。
+
+其中有两类根本不是关于故障的：
+
+- **`redis-healthy-baseline`** 描述的是一个什么问题都没有的实例，
+  而症状里仍然写着"延迟毛刺" —— 因为当应用变慢、运维人员第一个怀疑 Redis 时，
+  他们就是这么写的。它排除了该知识包声明的每一个模式，
+  因此一个"为了有话可说而编出故障"的系统会在它上面失败。
+  任何"有正确答案"的 case 都抓不住这一点：那些 case 里本来就有答案可找。
+- **`redis-logs-unavailable`** 与 **`mongodb-metrics-unavailable`** 拿走了一个数据源，
+  要求本次运行既要基于剩余证据得出应有的结论，也要声明它没能看到什么。
+
+### 它真的能抓住问题吗？
+
+针对内置知识包做了两次变异实验：
+
+| 变异 | 结果 |
+|---|---|
+| Redis 驱逐规则从 `evicted.avg > 0` 放宽为 `>= 0` | 3 个 case 变为 `WRONG`（含健康那个）；退出码 1 |
+| Kafka 副本不足阈值从 `> 0` 提高到 `> 100000` | 1 个 case 变为 `MISS`；退出码 1 |
+
+放宽的规则与收紧的规则会在不同的列上失败 —— 这正是这些列必须分开的全部理由。
 
 ## 6. 刻意不做的事
 

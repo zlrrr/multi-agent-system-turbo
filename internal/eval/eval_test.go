@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -547,4 +548,110 @@ func httpGet(url string) (string, error) {
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	return string(b), err
+}
+
+// TestCorpusMeetsTheDepthFloor is FR-014. One case per pack proves the
+// machinery works; it does not check the knowledge. A pack with a single case
+// can lose every other failure mode it declares without anything going red,
+// which is the failure this floor exists to prevent.
+func TestCorpusMeetsTheDepthFloor(t *testing.T) {
+	const (
+		corpusFloor  = 20 // the figure M3's exit criterion names
+		perPackFloor = 3
+	)
+
+	cases := corpus(t).Cases()
+	if len(cases) < corpusFloor {
+		t.Errorf("the corpus holds %d cases, below the floor of %d", len(cases), corpusFloor)
+	}
+
+	byPack := map[string][]string{}
+	for _, c := range cases {
+		byPack[c.Metadata.Middleware] = append(byPack[c.Metadata.Middleware], c.ID())
+	}
+	for _, p := range library(t).All() {
+		got := byPack[p.Metadata.Middleware]
+		if len(got) < perPackFloor {
+			t.Errorf("pack %s has %d case(s) (%s), below the floor of %d",
+				p.Metadata.Middleware, len(got), strings.Join(got, ", "), perPackFloor)
+		}
+	}
+
+	// Cases that assert the same thing under the same conditions are one case
+	// written twice: they cost CI time and catch nothing the other did not.
+	// Withholding a source is a different condition, so it is part of the key.
+	seen := map[string]string{}
+	for _, c := range cases {
+		key := c.Metadata.Middleware +
+			":" + strings.Join(sortedCopy(c.Expect.FailureModes), ",") +
+			"|" + strings.Join(sortedCopy(c.Telemetry.Withhold), ",")
+		if first, dup := seen[key]; dup {
+			t.Errorf("%s asserts the same conclusion as %s; one of them checks nothing new",
+				c.ID(), first)
+		}
+		seen[key] = c.ID()
+	}
+}
+
+// TestCorpusIncludesAHealthyDeployment is FR-015.
+//
+// A system that always concludes something will send an operator chasing a
+// fault that is not there, and no amount of correct-answer cases can catch it:
+// every one of them has an answer to find. The case that catches it is the one
+// with nothing wrong.
+func TestCorpusIncludesAHealthyDeployment(t *testing.T) {
+	var healthy []*Case
+	for _, c := range corpus(t).Cases() {
+		if len(c.Expect.FailureModes) == 0 && len(c.Expect.NotFailureModes) > 0 {
+			healthy = append(healthy, c)
+		}
+	}
+	if len(healthy) == 0 {
+		t.Fatal("no case describes a healthy deployment, so nothing checks that the system can say 'nothing is wrong'")
+	}
+
+	// A healthy case has to rule out every mode its pack declares. Ruling out
+	// two of nine would let the system invent any of the other seven.
+	lib := library(t)
+	for _, c := range healthy {
+		pack, err := lib.For(core.MiddlewareKind(c.Metadata.Middleware), c.Metadata.Version)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ruled := map[string]bool{}
+		for _, id := range c.Expect.NotFailureModes {
+			ruled[id] = true
+		}
+		for _, m := range pack.FailureModes {
+			if !ruled[m.ID] {
+				t.Errorf("healthy case %s does not rule out %s, so the system could invent it and still pass",
+					c.ID(), m.ID)
+			}
+		}
+	}
+}
+
+// TestCorpusWithholdsEachSource is FR-016: honesty has to be checked for both
+// sources, not only the one that was convenient to take away.
+func TestCorpusWithholdsEachSource(t *testing.T) {
+	for _, source := range []string{"metrics", "logs"} {
+		found := false
+		for _, c := range corpus(t).Cases() {
+			if c.Withholds(source) {
+				found = true
+				if len(c.Expect.Gaps) == 0 {
+					t.Errorf("%s withholds %s but expects no gap", c.ID(), source)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no case withholds %s, so nothing checks that its absence is declared", source)
+		}
+	}
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }

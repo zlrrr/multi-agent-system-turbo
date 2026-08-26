@@ -1,7 +1,7 @@
 # Feature Specification: Case Corpus and Evaluation Harness
 
-> **Feature ID**: `006-eval-harness` · **Version**: 1.0.0 · **Status**: approved
-> **Bilingual pair**: [`spec.zh.md`](./spec.zh.md) · **Upstream**: [`docs/en/project-goals.md`](../../docs/en/project-goals.md) v1.1.4
+> **Feature ID**: `006-eval-harness` · **Version**: 1.1.0 · **Status**: approved
+> **Bilingual pair**: [`spec.zh.md`](./spec.zh.md) · **Upstream**: [`docs/en/project-goals.md`](../../docs/en/project-goals.md) v1.1.5
 > **Constitution**: `.specify/memory/constitution.md` v1.0.0 · **Downstream**: `plan.md`
 
 ## 1. Problem statement
@@ -82,6 +82,9 @@ continue.
 | FR-011 | `mas eval` MUST run the corpus from the CLI, in both languages | P1 | CLI test |
 | FR-012 | CI MUST fail when a shipped case regresses | P1 | `make ci` runs the corpus |
 | FR-013 | The corpus MUST cover every shipped pack | P1 | `TestEveryPackHasACase` |
+| FR-014 | The corpus MUST reach the depth M3 exits on: at least 20 cases, and at least 3 for every shipped pack | P1 | `TestCorpusMeetsTheDepthFloor` |
+| FR-015 | The corpus MUST include a healthy deployment, on which a correct diagnosis concludes nothing | P1 | `TestCorpusIncludesAHealthyDeployment` |
+| FR-016 | The corpus MUST withhold each telemetry source in at least one case, so honesty is checked for metrics and for logs | P1 | `TestCorpusWithholdsEachSource` |
 
 ## 5. Non-functional requirements
 
@@ -114,4 +117,5 @@ regression, and `make ci` is green.
 
 | Version | Date | Change | Impact |
 |---|---|---|---|
+| 1.1.0 | 2026-08-26 | Corpus depth requirements (FR-014…FR-016): one case per pack proves the machinery, not the knowledge. A pack with one case can lose every other failure mode silently, and a corpus that never sees a healthy deployment cannot catch a system that invents a fault to have something to say | tasks, cases |
 | 1.0.0 | 2026-08-25 | Initial specification | plan, HLD, LLD, tasks, code |

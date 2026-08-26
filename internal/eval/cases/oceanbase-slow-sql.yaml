@@ -1,0 +1,46 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: oceanbase-slow-sql
+  middleware: oceanbase
+  version: "4.2.1"
+  title:
+    en: "Response time up, throughput flat: a plan changed"
+    zh: "响应时间上升、吞吐持平：是执行计划变了"
+  description:
+    en: >-
+      Average SQL response time went from 180 ms to 1.2 s while statement
+      throughput did not move. At constant throughput the cause is the plan or
+      the data, not demand — so adding capacity would spend money and change
+      nothing. The cluster-level faults are all measured and all clean, which is
+      what makes "the plan changed" a conclusion rather than a guess by
+      elimination.
+    zh: >-
+      SQL 平均响应时间从 180 毫秒升到 1.2 秒，而语句吞吐没有变化。
+      吞吐不变时，原因在执行计划或数据本身，而不在需求 ——
+      因此扩容只会花钱而不会带来任何改变。集群级故障全部有实测数据且全部干净，
+      这才使"计划变了"成为一个结论，而不是靠排除法猜出来的答案。
+
+symptom:
+  en: "SQL response time doubled without more traffic"
+  zh: "SQL 响应时间翻倍，而请求量并未增加"
+
+telemetry:
+  metrics:
+    ob_sql_response_time_seconds: [0.18, 0.62, 1.20]
+    ob_sysstat: [0.2, 0.2, 0.2]
+    ob_server_status: [1, 1, 1]
+    ob_zone_merge_time_seconds: [180, 240, 300]
+    ob_zone_merge_error: [0, 0, 0]
+    ob_clog_disk_used_bytes: [0.30, 0.31, 0.31]
+    ob_disk_used_bytes: [0.52, 0.52, 0.53]
+    # `up` is the oceanbase pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[SLOW QUERY] elapsed=1204331 sql=SELECT * FROM orders WHERE tenant_id = ? AND created_at > ?"
+    - "[SLOW QUERY] elapsed=1188220 sql=SELECT * FROM orders WHERE tenant_id = ? AND created_at > ?"
+
+expect:
+  failure_modes: [slow-sql]
+  not_failure_modes: [observer-unavailable, disk-pressure, major-merge-delay]

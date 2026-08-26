@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.1.5 · **Status**: approved · **Date**: 2026-08-26
+> **Version**: 1.1.6 · **Status**: approved · **Date**: 2026-08-26
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -195,7 +195,7 @@ disconnected parts.
 ### Milestone M3 — experimentation & quality
 | Rank | Item | Goals | Note |
 |---|---|---|---|
-| P2-1 | Case corpus + evaluation harness (topology A/B) | G7.3 | Harness delivered (`specs/006-eval-harness`); the corpus is at 7 of the ≥20 cases M3 exits on |
+| P2-1 | Case corpus + evaluation harness (topology A/B) | G7.3 | Delivered (`specs/006-eval-harness`): 21 cases, ≥3 per pack, one healthy deployment, both sources withheld somewhere |
 | P2-2 | Version-scoped pack rules | G2.3 | — |
 | P2-3 | Pack authoring guide + schema publication | G2.4 | *Pulled forward: delivered with P1-3, because four new packs written against an unwritten contract would have fixed the contract by accident* |
 | P2-4 | Regression scoring across model/topology matrix | G7.3 | — |
@@ -214,7 +214,7 @@ disconnected parts.
 |---|---|---|
 | **M1** | `make ci` green; container image runs `mas diagnose` end-to-end against a mock provider and a fixture telemetry stack; report produced; manual published; release workflow produces artifacts | **Met.** `make ci` green (format, vet, lint, race tests, SDD checks, build); `make demo` produces English and Chinese reports from stub telemetry with no credentials; a container running as uid 65532 completes a diagnosis and returns the documented exit codes; bilingual manual, configuration and error-code references published |
 | M2 | All six knowledge packs pass their pack-conformance tests **(met)**; Kubernetes in-container `exec` **(met, opt-out, same allow-list as the host)**; ≥4 topologies selectable **(met: five, all against one conformance contract)** | Source fallback already proven under simulated network failure (delivered in M1) |
-| M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command | **In progress.** `mas eval --matrix` is the one command, and it runs every case against every topology and exits non-zero on a regression. The corpus holds 7 cases — one per pack plus one that withholds a source — against the ≥20 this criterion names, so the criterion is not met and the remaining work is cases, not machinery |
+| M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command | **Met as written.** `mas eval --matrix` runs 21 cases against all five topologies in under a second and exits non-zero on a regression. Mutation-tested both ways: widening a pack rule turns cases `WRONG`, narrowing one turns them `MISS`. The criterion names only the corpus, so the milestone's remaining backlog — P2-2 (version-scoped pack rules) and P2-4 (regression scoring across the model matrix) — is still open |
 | M4 | API authenticated; run store pluggable; UI serving reports | Run store is already pluggable behind `RunStore` (delivered in M1) |
 
 ## 7. Measures of success
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.1.6 | 2026-08-26 | M3's P2-1 recorded as delivered and the M3 exit criterion as met: 21 cases, at least three per pack, one healthy deployment that must conclude nothing, and each telemetry source withheld somewhere. The criterion covers the corpus only, so P2-2 and P2-4 remain open under M3 | Backlog and M3 exit status reflect delivered scope; no goal changed | `specs/006-eval-harness/` |
 | 1.1.5 | 2026-08-26 | M3's P2-1 recorded as partly delivered: the evaluation harness, the `mas eval` gate and one case per pack exist, and the corpus is at 7 of the ≥20 cases M3 exits on. The harness's first run found a real defect — a source that was down was only reported as a gap if some agent happened to query it — recorded as amendment 1.0.6 to `specs/001-mvp-core/design-lld.md` | Backlog and M3 exit status reflect delivered scope; no goal changed | `specs/006-eval-harness/` |
 | 1.1.4 | 2026-08-25 | M2's P1-5 and P1-6 recorded as delivered, completing M2: a role can be routed to a different provider, and a run reports what it cost per role — or states plainly that nobody priced it, rather than reporting zero | Backlog reflects delivered scope; no goal changed | `specs/005-model-routing-and-cost/` |
 | 1.1.3 | 2026-08-25 | M2's P1-7 recorded as delivered, which completes M2's exit criteria: a knowledge pack's read-only commands now run inside a pod under the same allow-list that governs them on a host | Backlog reflects delivered scope; no goal changed | `specs/004-kube-exec/` |

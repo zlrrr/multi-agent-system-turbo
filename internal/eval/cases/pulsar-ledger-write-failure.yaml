@@ -1,0 +1,45 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: pulsar-ledger-write-failure
+  middleware: pulsar
+  version: "3.2.0"
+  title:
+    en: "Not enough bookies to satisfy the write quorum"
+    zh: "可用 bookie 数不足以满足写入 quorum"
+  description:
+    en: >-
+      The log carries NotEnoughBookies: a ledger cannot be opened because fewer
+      bookies are available than the ensemble the namespace requires. Every
+      bookie that *is* running reports writable and the ledger directories are
+      at half, so this is not storage filling up — it is a count. The topics
+      themselves loaded fine, which is what separates a write failure from an
+      unavailable topic.
+    zh: >-
+      日志中带有 NotEnoughBookies：可用 bookie 数少于该 namespace 要求的 ensemble，
+      因此无法打开 ledger。仍在运行的每个 bookie 都报告可写，ledger 目录也只用了一半，
+      所以这不是存储被写满，而是数量不够。topic 本身加载正常，
+      这正是"写入失败"与"topic 不可用"的分界。
+
+symptom:
+  en: "producers get errors and writes are failing"
+  zh: "生产者报错，写入失败"
+
+telemetry:
+  metrics:
+    pulsar_broker_publish_latency: [20, 22, 21]
+    bookkeeper_server_ADD_ENTRY_REQUEST: [5, 6, 5]
+    bookie_ledger_dir__pulsar_data_bookkeeper_ledgers_usage: [0.50, 0.51, 0.50]
+    bookie_SERVER_STATUS: [1, 1, 1]
+    pulsar_topics_count: [128, 128, 128]
+    # `up` is the pulsar pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "org.apache.bookkeeper.mledger.ManagedLedgerException: Not enough non-faulty bookies available"
+    - "[persistent://public/default/events] Failed to write ledger: NotEnoughBookiesException"
+    - "[persistent://public/default/events] Failed to write ledger: NotEnoughBookiesException"
+
+expect:
+  failure_modes: [ledger-write-failure]
+  not_failure_modes: [topic-unavailable, bookie-storage-pressure, broker-overload]

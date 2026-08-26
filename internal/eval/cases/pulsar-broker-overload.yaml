@@ -1,0 +1,43 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: pulsar-broker-overload
+  middleware: pulsar
+  version: "3.2.0"
+  title:
+    en: "Publish latency at the broker, not at the bookies"
+    zh: "延迟出在 broker，而不在 bookie"
+  description:
+    en: >-
+      Publish p99 went from 35 ms to 260 ms while bookie add-entry stayed at 6 ms
+      and the ledger directories are half full. The write path below the broker
+      is doing fine, so the queue is in the broker itself. Ruling out storage is
+      the whole content of the case: "writes are slow" points at disks by
+      reflex, and the two layers are measured separately for exactly this reason.
+    zh: >-
+      发布 p99 从 35 毫秒升到 260 毫秒，而 bookie 的 add-entry 始终为 6 毫秒，
+      ledger 目录也只用了一半。broker 之下的写入链路一切正常，
+      因此排队发生在 broker 自身。排除存储正是本用例的全部内容："写入变慢"
+      会让人条件反射地指向磁盘，而这两层之所以分开度量，正是为了这个原因。
+
+symptom:
+  en: "publish latency p99 is climbing"
+  zh: "发布时延 p99 正在上升"
+
+telemetry:
+  metrics:
+    pulsar_broker_publish_latency: [35, 120, 260]
+    bookkeeper_server_ADD_ENTRY_REQUEST: [4, 5, 6]
+    bookie_ledger_dir__pulsar_data_bookkeeper_ledgers_usage: [0.48, 0.49, 0.50]
+    bookie_SERVER_STATUS: [1, 1, 1]
+    pulsar_topics_count: [128, 128, 128]
+    # `up` is the pulsar pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[persistent://public/default/events] Publish rate limit reached on the broker"
+    - "[broker] Pending write requests queue depth 1840"
+
+expect:
+  failure_modes: [broker-overload]
+  not_failure_modes: [bookie-storage-pressure]

@@ -1,0 +1,43 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: milvus-memory-pressure
+  middleware: milvus
+  version: "2.4.1"
+  title:
+    en: "Nodes OOM-killed with a loaded collection at the memory ceiling"
+    zh: "已加载集合顶到内存上限，节点被 OOM 杀掉"
+  description:
+    en: >-
+      Working set reached 93% of the container limit and the log says the memory
+      quota is exhausted. Segments loaded successfully before the ceiling was
+      reached, so this is not a load failure — the collection is in memory and
+      too large for it. Object storage and etcd are both answering normally,
+      which rules out the dependency explanation that a restart loop invites.
+    zh: >-
+      工作集达到容器上限的 93%，日志显示内存配额已耗尽。
+      在触及上限之前 segment 都成功加载了，因此这不是加载失败 ——
+      集合确实已在内存里，只是对内存来说太大了。对象存储与 etcd 应答都正常，
+      这排除了"反复重启"最容易引出的那个依赖故障解释。
+
+symptom:
+  en: "nodes are OOM-killed and restart repeatedly"
+  zh: "节点因 OOM 被杀，并反复重启"
+
+telemetry:
+  metrics:
+    container_memory_working_set_bytes: [0.62, 0.88, 0.93]
+    milvus_querynode_entity_num: [12000000, 12000000, 12000000]
+    milvus_storage_request_latency_bucket: [40, 42, 45]
+    milvus_meta_op_count: [0.1, 0.1, 0.1]
+    # `up` is the milvus pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[QueryNode] memory quota exhausted, current 29.8GB limit 32GB"
+    - "[QueryNode] Load segment 447382910283 finished in 4.2s"
+    - "[QueryNode] insufficient memory to load collection product_vectors"
+
+expect:
+  failure_modes: [memory-pressure]
+  not_failure_modes: [dependency-failure, collection-load-failure]
