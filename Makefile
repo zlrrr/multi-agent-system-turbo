@@ -83,9 +83,13 @@ test-output:
 test-surfaces:
 	$(GO) test ./internal/cli/... ./internal/httpapi/...
 
-## eval: run the diagnostic case corpus; non-zero exit on regression
+## eval: run the corpus against the recorded baseline; non-zero exit on regression
 eval: build
-	$(BIN_DIR)/mas eval --matrix
+	$(BIN_DIR)/mas eval --matrix --baseline internal/eval/baseline.json
+
+## eval-baseline: re-record the baseline (review the diff before committing)
+eval-baseline: build
+	$(BIN_DIR)/mas eval --matrix --write-baseline internal/eval/baseline.json
 
 ## sdd-verify: bilingual parity, cascade staleness and requirement coverage
 sdd-verify:
@@ -125,4 +129,4 @@ clean:
 
 .PHONY: help build fmt fmt-check vet lint test test-race cover \
         test-foundation test-capability test-knowledge test-reasoning test-output test-surfaces \
-        eval sdd-verify errcodes-docs ci docker demo dist clean
+        eval eval-baseline sdd-verify errcodes-docs ci docker demo dist clean

@@ -894,10 +894,13 @@ func unique(in []string) []string {
 // be more decisive (specs/006-eval-harness/design-hld.md §3).
 func newEvalCmd(e *env) *cobra.Command {
 	var (
-		matrix   bool
-		asJSON   bool
-		caseDirs []string
-		topology string
+		matrix        bool
+		asJSON        bool
+		caseDirs      []string
+		topology      string
+		models        []string
+		baselinePath  string
+		writeBaseline string
 	)
 	cmd := &cobra.Command{
 		Use:   "eval",
@@ -935,27 +938,71 @@ rules out, which is what makes this usable as a CI gate.`,
 				topologies = []string{cfg.Run.DefaultTopology}
 			}
 
+			// The baseline is loaded before the run: a comparison against a
+			// file that turns out to be unreadable is worth finding out about
+			// before spending the corpus, not after.
+			var baseline eval.Baseline
+			if baselinePath != "" {
+				baseline, err = eval.LoadBaseline(baselinePath)
+				if err != nil {
+					return err
+				}
+			}
+
 			lang := cfg.Run.Language
 			summary := eval.NewRunner(lib).Matrix(cmd.Context(), corpus.Cases(), topologies,
-				eval.Options{Language: lang, LLM: cfg.LLM})
+				eval.Options{Language: lang, LLM: cfg.LLM, Models: models})
 
-			render := eval.Render
+			if writeBaseline != "" {
+				// A person's act, never a run's. A baseline that writes itself
+				// records whatever happened and can never fail.
+				if err := eval.NewBaseline(summary).Save(writeBaseline); err != nil {
+					return err
+				}
+				fmt.Fprintf(e.errOut, "baseline written to %s\n", writeBaseline)
+			}
+
+			if baselinePath == "" {
+				render := eval.Render
+				if asJSON {
+					render = eval.RenderJSON
+				}
+				if err := render(e.out, summary, lang); err != nil {
+					return err
+				}
+				// Returned rather than printed: the exit status is the gate,
+				// and a regression that only appeared in the table would be a
+				// gate that lets everything through.
+				return summary.Regression()
+			}
+
+			delta := eval.Compare(baseline, summary)
 			if asJSON {
-				render = eval.RenderJSON
+				if err := eval.RenderComparisonJSON(e.out, summary, delta, lang); err != nil {
+					return err
+				}
+			} else {
+				if err := eval.Render(e.out, summary, lang); err != nil {
+					return err
+				}
+				fmt.Fprintln(e.out)
+				if err := eval.RenderDelta(e.out, delta, lang); err != nil {
+					return err
+				}
 			}
-			if err := render(e.out, summary, lang); err != nil {
-				return err
-			}
-
-			// Returned rather than printed: the exit status is the gate, and a
-			// regression that only appeared in the table would be a gate that
-			// lets everything through.
-			return summary.Regression()
+			// The baseline gate replaces the absolute one: a build that failed
+			// for two reasons at once teaches nothing about either.
+			return delta.Gate()
 		},
 	}
 	cmd.Flags().BoolVar(&matrix, "matrix", false, "run every topology, not just one")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
 	cmd.Flags().StringVar(&topology, "topology", "", "run one named topology (default: run.default_topology)")
 	cmd.Flags().StringSliceVar(&caseDirs, "cases", nil, "directories of additional cases, alongside the shipped corpus")
+	cmd.Flags().StringSliceVar(&models, "models", nil, "run each of these models across every case and topology")
+	cmd.Flags().StringVar(&baselinePath, "baseline", "",
+		"compare against a recorded baseline and fail only on cells that got worse")
+	cmd.Flags().StringVar(&writeBaseline, "write-baseline", "",
+		"record this run as the baseline at this path")
 	return cmd
 }

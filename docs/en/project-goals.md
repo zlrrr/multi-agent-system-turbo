@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.1.7 · **Status**: approved · **Date**: 2026-08-26
+> **Version**: 1.1.8 · **Status**: approved · **Date**: 2026-08-26
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -198,7 +198,7 @@ disconnected parts.
 | P2-1 | Case corpus + evaluation harness (topology A/B) | G7.3 | Delivered (`specs/006-eval-harness`): 21 cases, ≥3 per pack, one healthy deployment, both sources withheld somewhere |
 | P2-2 | Version-scoped pack rules | G2.3 | Delivered (`specs/007-version-scoped-rules`): any rule may carry a range, a rename is two variants of one id, and resolution happens once per run |
 | P2-3 | Pack authoring guide + schema publication | G2.4 | *Pulled forward: delivered with P1-3, because four new packs written against an unwritten contract would have fixed the contract by accident* |
-| P2-4 | Regression scoring across model/topology matrix | G7.3 | — |
+| P2-4 | Regression scoring across model/topology matrix | G7.3 | Delivered (`specs/008-regression-baselines`): a baseline per (case, topology, model) cell, regressions and improvements never netted, and a known-bad cell that stays listed without failing the build |
 
 ### Milestone M4 — hardening
 | Rank | Item | Goals |
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.1.8 | 2026-08-26 | M3's P2-4 recorded as delivered, completing every ranked item under M3: a run is compared against a recorded baseline cell by cell, regressions and improvements are reported side by side and never netted, and a cell that legitimately cannot pass is recorded rather than deleted — which is what stops the absolute gate from making case deletion the cheapest way to a green build | Backlog reflects delivered scope; no goal changed | `specs/008-regression-baselines/` |
 | 1.1.7 | 2026-08-26 | M3's P2-2 recorded as delivered, completing G2.3: a pack rule may be scoped to a version range, a renamed metric is two variants of one id, and dropping is transitive so a step never outlives the signal it reads. Only rules with a documented boundary are scoped in the shipped packs — a range invented from memory silently removes a working check | Backlog reflects delivered scope; no goal changed | `specs/007-version-scoped-rules/` |
 | 1.1.6 | 2026-08-26 | M3's P2-1 recorded as delivered and the M3 exit criterion as met: 21 cases, at least three per pack, one healthy deployment that must conclude nothing, and each telemetry source withheld somewhere. The criterion covers the corpus only, so P2-2 and P2-4 remain open under M3 | Backlog and M3 exit status reflect delivered scope; no goal changed | `specs/006-eval-harness/` |
 | 1.1.5 | 2026-08-26 | M3's P2-1 recorded as partly delivered: the evaluation harness, the `mas eval` gate and one case per pack exist, and the corpus is at 7 of the ≥20 cases M3 exits on. The harness's first run found a real defect — a source that was down was only reported as a gap if some agent happened to query it — recorded as amendment 1.0.6 to `specs/001-mvp-core/design-lld.md` | Backlog and M3 exit status reflect delivered scope; no goal changed | `specs/006-eval-harness/` |

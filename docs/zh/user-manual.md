@@ -277,6 +277,20 @@ supervisor     7/7 hit · 0 miss · 0 false conclusion(s) · 0 gap(s) missed
 这正是它可以直接用作 CI 闸门的原因。用 `--cases` 指向一个目录即可加入你自己的 case；
 [评测指南](./evaluation.md) 里有格式与其背后的取舍。
 
+若想看到的不只是"绿不绿"，而是**什么变了**，请记录一份基线并与之比较：
+
+```bash
+mas eval --matrix --write-baseline baseline.json   # 记录（人的行为）
+mas eval --matrix --baseline baseline.json         # 比较
+mas eval --matrix --models fast-model,strong-model # 模型维度
+```
+
+回归与改善并排报告且绝不相互抵消；一个与记录时完全一样地失败的格子，
+会保持在列表中而不让构建失败 ——
+因此一个确实无法通过的 case，不必为了让 CI 变绿而被删掉。
+每个格子只是一个样本：在真实模型下那是一次抽样而不是一次测量，
+比较结果每次都会说明这一点。
+
 ### 一次运行花了多少，又是谁花的
 
 模型调用数与工具调用数始终会被统计。而金额只有在你说明了某个模型的价格之后才会被报告：

@@ -31,6 +31,13 @@ import (
 //go:embed cases/*.yaml
 var embeddedCases embed.FS
 
+// shippedBaseline is this repository's own baseline for its own corpus,
+// recorded under the deterministic provider. It is embedded so a test can
+// compare against it without depending on the working directory.
+//
+//go:embed baseline.json
+var shippedBaseline []byte
+
 // APIVersion and Kind identify a case document.
 const (
 	APIVersion = "mas.turbo/v1"

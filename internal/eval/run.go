@@ -12,6 +12,7 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/knowledge"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/obs"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/safety"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
@@ -27,6 +28,11 @@ type Options struct {
 	// MaxConcurrency bounds how many cases run at once. Cases are independent,
 	// and the corpus has to stay inside CI's minute (NFR-001).
 	MaxConcurrency int
+
+	// Models is the model axis. Empty means the single model in LLM, which is
+	// what every run before feature 008 did. G7.3 asks for a model/topology
+	// matrix, and only the topology axis existed.
+	Models []string
 }
 
 func (o Options) withDefaults() Options {
@@ -77,7 +83,8 @@ func (r *Runner) Run(ctx context.Context, c *Case, o Options) Outcome {
 		Logger:   obs.Setup(cfg.Log, redactor, discard{}),
 	})
 	if err != nil {
-		return Outcome{Case: c.ID(), Topology: o.Topology, Err: err, Duration: time.Since(started)}
+		return Outcome{Case: c.ID(), Topology: o.Topology, Model: o.LLM.Model,
+			Err: err, Duration: time.Since(started)}
 	}
 
 	report, err := svc.Diagnose(ctx, core.DiagnoseRequest{
@@ -88,16 +95,25 @@ func (r *Runner) Run(ctx context.Context, c *Case, o Options) Outcome {
 		Language: o.Language,
 	})
 	if err != nil {
-		return Outcome{Case: c.ID(), Topology: o.Topology, Err: err, Duration: time.Since(started)}
+		return Outcome{Case: c.ID(), Topology: o.Topology, Model: o.LLM.Model,
+			Err: err, Duration: time.Since(started)}
 	}
 
 	out := Score(c, report)
 	out.Topology = o.Topology
+	// From the options this job ran with, never from shared config: a shared
+	// read would attribute every cell's cost to whichever model was configured
+	// last (specs/008-regression-baselines/plan.md RSK-4).
+	out.Model = o.LLM.Model
 	out.Duration = time.Since(started)
 	prom, loki := st.hits()
 	out.TelemetryHits = prom + loki
 	return out
 }
+
+// AllTopologies is every registered topology, which is what `--matrix` runs and
+// what the shipped baseline covers.
+func AllTopologies() []string { return orchestrator.Names() }
 
 // Matrix evaluates every case against every topology.
 func (r *Runner) Matrix(ctx context.Context, cases []*Case, topologies []string, o Options) Summary {
@@ -106,14 +122,22 @@ func (r *Runner) Matrix(ctx context.Context, cases []*Case, topologies []string,
 		topologies = []string{o.Topology}
 	}
 
+	models := o.Models
+	if len(models) == 0 {
+		models = []string{o.LLM.Model}
+	}
+
 	type job struct {
 		c        *Case
 		topology string
+		model    string
 	}
 	var jobs []job
 	for _, c := range cases {
 		for _, t := range topologies {
-			jobs = append(jobs, job{c: c, topology: t})
+			for _, m := range models {
+				jobs = append(jobs, job{c: c, topology: t, model: m})
+			}
 		}
 	}
 
@@ -128,18 +152,22 @@ func (r *Runner) Matrix(ctx context.Context, cases []*Case, topologies []string,
 			defer func() { <-sem }()
 			opts := o
 			opts.Topology = j.topology
+			opts.LLM.Model = j.model
 			results[i] = r.Run(ctx, j.c, opts)
 		}(i, j)
 	}
 	wg.Wait()
 
-	// Results are ordered by case then topology rather than by completion, so
-	// two runs of the same corpus render identically (FR-008).
+	// Results are ordered by case, topology then model rather than by
+	// completion, so two runs of the same matrix render identically (FR-008).
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Case != results[j].Case {
 			return results[i].Case < results[j].Case
 		}
-		return results[i].Topology < results[j].Topology
+		if results[i].Topology != results[j].Topology {
+			return results[i].Topology < results[j].Topology
+		}
+		return results[i].Model < results[j].Model
 	})
 
 	return Summary{

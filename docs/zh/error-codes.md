@@ -142,3 +142,6 @@
 | `MAS-9102` | error | `CaseNoPack` | 诊断 case 指向的中间件 %q 没有对应的知识包 | 为该中间件提供知识包，或让该 case 指向一个已存在的中间件。 |
 | `MAS-9103` | error | `CorpusRegressed` | 语料库出现回归：%d 个 case 漏判，%d 个得出了该 case 明确排除的结论 | 执行 `mas eval` 查看具体是哪些。漏判与错误结论是两种不同的失败：前者让运维人员留在原地，后者自信地把他们送错方向。 |
 | `MAS-9104` | error | `CaseDirUnreadable` | case 目录 %s 无法读取：%s | 若不报错，写错的 --cases 路径会去跑内置语料库并报告成功 —— 这正是绝不能被意外产生的结果。 |
+| `MAS-9105` | error | `BaselineRegressed` | 有 %d 个格子相对基线发生回归：%s | 某个原本命中的格子不再命中。执行 `mas eval --baseline <文件>` 查看每个格子失去了什么。若该变化是有意为之，请用 --write-baseline 记录，使新状态在 diff 中被评审。 |
+| `MAS-9106` | error | `BaselineUnreadable` | 基线 %s 无法读取：%s | 请让 --baseline 指向由 --write-baseline 写出的文件。把无法读取的文件当作空基线，会让每个格子都看起来是新增的 —— 那读起来就像一次干净的比较。 |
+| `MAS-9107` | warn | `BaselineProviderMismatch` | 基线是在 provider %q 下记录的，而本次运行使用的是 %q | 跨 provider 比较正是模型矩阵的意义所在；但不加说明地这么做则不是。比较会继续进行，并同时披露这一点。 |

@@ -308,6 +308,21 @@ non-zero when a case misses or reaches a ruled-out conclusion, which is what
 makes it usable as a CI gate. Point `--cases` at a directory to add your own;
 [the evaluation guide](./evaluation.md) is the format and the reasoning.
 
+To see **what moved** rather than only whether everything is green, record a
+baseline and compare against it:
+
+```bash
+mas eval --matrix --write-baseline baseline.json   # record (a person's act)
+mas eval --matrix --baseline baseline.json         # compare
+mas eval --matrix --models fast-model,strong-model # the model axis
+```
+
+Regressions and improvements are reported side by side and never netted, and a
+cell that fails exactly as recorded stays listed without failing the build — so
+a case that legitimately cannot pass does not have to be deleted to keep CI
+green. Each cell is one sample: under a real model that is a draw, not a
+measurement, and the comparison says so every time.
+
 ### What a run cost, and who spent it
 
 Model calls and tool calls are always counted. Money is only reported when you

@@ -228,6 +228,83 @@ Two mutations, run against the shipped packs:
 A widened rule and a narrowed one fail in different columns, which is the whole
 reason the columns are kept apart.
 
+## 5a. Baselines: what moved, not just whether it is green
+
+`mas eval` on its own answers one question — is everything still green? After a
+change the question is different: **what moved?** A pack edit that fixes two
+cases and breaks one shows up as "the corpus regressed", with no way to see the
+trade. And once a case legitimately cannot pass, the only way to keep CI green
+is to delete it — which deletes the only record that the gap exists.
+
+A baseline records one outcome per **cell**: (case, topology, model).
+
+```bash
+mas eval --matrix --write-baseline internal/eval/baseline.json   # record
+mas eval --matrix --baseline internal/eval/baseline.json         # compare
+```
+
+Recording is a person's act. Nothing else writes a baseline, because one that
+updates itself records whatever happened and can never fail.
+
+### What a comparison says
+
+| Was | Is | Called | Gate |
+|---|---|---|---|
+| hit | hit | *(not reported — an unchanged pass is not news)* | passes |
+| hit | anything else | **regressed** | **fails** |
+| not hit | hit | **improved** | passes, and is shown |
+| not hit | not hit, same ids | **known-bad** | passes, and is listed every run |
+| not hit | not hit, different ids | **changed failure** | passes, and is shown |
+| absent | anything | **new** | passes, and is shown |
+| anything | absent | **not run** | passes, and is shown |
+
+Regressions and improvements are reported side by side and **never netted**. A
+change that fixes two cells and breaks one is two improvements and one
+regression; the person reviewing it decides. Summing them would let one hide
+the other, which is the same collapse this harness refuses everywhere else.
+
+### Known-bad is the point
+
+The row that matters most is the fourth. A cell that fails exactly as it was
+recorded — same class, same failure-mode ids — is not a transition. It keeps CI
+green *and* appears in the comparison on every run, so the gap stays in front of
+whoever could close it. That is what makes it unnecessary to delete a case to
+get a green build.
+
+A known-bad cell that starts failing **differently** is reported, because the
+reason it fails is part of what was recorded: a cell that was missing one mode
+and now reaches a wrong one has moved, even though both are "not a hit".
+
+### The model axis
+
+```bash
+mas eval --matrix --models claude-haiku-4-5,claude-sonnet-5
+```
+
+Every named model runs across every case and every topology, and each cell
+carries the model that produced it — so cost and calls are attributed to the
+model that spent them rather than to whichever was configured last.
+
+**Each cell is one sample.** Under the deterministic provider that is a
+measurement; under a real model it is a single draw, and two draws can differ.
+The comparison says what changed, not whether the change is significant: one run
+cannot support that claim, so none is made. The statement travels in the JSON as
+a field, like every other caveat here.
+
+Comparing a run under one provider against a baseline recorded under another is
+allowed — it is what a model matrix is for — and disclosed every time
+(`MAS-9107`), because doing it silently is the part that would be wrong.
+
+### The repository's own baseline
+
+`internal/eval/baseline.json` covers the shipped corpus across all five
+topologies under the deterministic provider, and `make ci` compares against it.
+`make eval-baseline` re-records it; review the diff before committing, because
+that diff is the only thing standing between a recorded regression and a green
+build.
+
+---
+
 ## 6. What is deliberately not here
 
 - **No real incident data.** Nothing in the corpus came from a production
@@ -238,3 +315,7 @@ reason the columns are kept apart.
 - **No ranking of models or vendors.** The harness runs whatever provider you
   configure; a comparison it produced would be a comparison of your prices, your
   prompts and your packs as much as of any model.
+- **No significance testing.** One sample per cell is what this runs. A
+  confidence interval computed from it would read as rigour and carry none.
+- **No automatic baseline updates.** A baseline that updates itself records
+  whatever happened, and a build that can never fail teaches nothing.

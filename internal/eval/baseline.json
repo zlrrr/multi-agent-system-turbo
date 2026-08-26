@@ -1,0 +1,668 @@
+{
+  "version": 1,
+  "provider": "mock",
+  "recorded": "2026-08-26",
+  "corpus": 22,
+  "cells": [
+    {
+      "case": "kafka-broker-disk-latency",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-disk-latency",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-disk-latency",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-disk-latency",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-disk-latency",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-loss-under-replicated",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-loss-under-replicated",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-loss-under-replicated",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-loss-under-replicated",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-broker-loss-under-replicated",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-consumer-lag-growth",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-consumer-lag-growth",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-consumer-lag-growth",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-consumer-lag-growth",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-consumer-lag-growth",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-kraft-under-replicated",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-kraft-under-replicated",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-kraft-under-replicated",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-kraft-under-replicated",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "kafka-kraft-under-replicated",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-dependency-failure",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-dependency-failure",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-dependency-failure",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-dependency-failure",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-dependency-failure",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-memory-pressure",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-memory-pressure",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-memory-pressure",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-memory-pressure",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-memory-pressure",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-query-node-queueing",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-query-node-queueing",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-query-node-queueing",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-query-node-queueing",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "milvus-query-node-queueing",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-connection-saturation",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-connection-saturation",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-connection-saturation",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-connection-saturation",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-connection-saturation",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-metrics-unavailable",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-metrics-unavailable",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-metrics-unavailable",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-metrics-unavailable",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-metrics-unavailable",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-replication-lag-write-concern",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-replication-lag-write-concern",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-replication-lag-write-concern",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-replication-lag-write-concern",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-replication-lag-write-concern",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-slow-queries",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-slow-queries",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-slow-queries",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-slow-queries",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "mongodb-slow-queries",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-clog-sync-lag",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-clog-sync-lag",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-clog-sync-lag",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-clog-sync-lag",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-clog-sync-lag",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-slow-sql",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-slow-sql",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-slow-sql",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-slow-sql",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-slow-sql",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-tenant-memory-exhaustion",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-tenant-memory-exhaustion",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-tenant-memory-exhaustion",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-tenant-memory-exhaustion",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "oceanbase-tenant-memory-exhaustion",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-broker-overload",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-broker-overload",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-broker-overload",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-broker-overload",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-broker-overload",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-ledger-write-failure",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-ledger-write-failure",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-ledger-write-failure",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-ledger-write-failure",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-ledger-write-failure",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-subscription-backlog",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-subscription-backlog",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-subscription-backlog",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-subscription-backlog",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "pulsar-subscription-backlog",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-connection-saturation",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-connection-saturation",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-connection-saturation",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-connection-saturation",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-connection-saturation",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-healthy-baseline",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-healthy-baseline",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-healthy-baseline",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-healthy-baseline",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-healthy-baseline",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-logs-unavailable",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-logs-unavailable",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-logs-unavailable",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-logs-unavailable",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-logs-unavailable",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-maxmemory-eviction",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-maxmemory-eviction",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-maxmemory-eviction",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-maxmemory-eviction",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-maxmemory-eviction",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-persistence-failure",
+      "topology": "blackboard",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-persistence-failure",
+      "topology": "debate",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-persistence-failure",
+      "topology": "plan-execute",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-persistence-failure",
+      "topology": "single",
+      "model": "mock-1",
+      "class": "hit"
+    },
+    {
+      "case": "redis-persistence-failure",
+      "topology": "supervisor",
+      "model": "mock-1",
+      "class": "hit"
+    }
+  ]
+}

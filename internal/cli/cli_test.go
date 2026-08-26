@@ -660,3 +660,94 @@ func TestPacksCommandShowsVersionScoping(t *testing.T) {
 		t.Errorf("nothing was skipped, yet the preview reported a gap:\n%s", kept)
 	}
 }
+
+// TestEvalBaselineCLI is FR-013 of feature 008. Three things have to work
+// together for a baseline to be usable: recording is explicit, comparing
+// replaces the absolute gate, and a regression against the baseline is what
+// decides the exit status.
+func TestEvalBaselineCLI(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "baseline.json")
+
+	// Recording is a person's act, and says where it went.
+	_, errOut, code := h.run("eval", "--write-baseline", path)
+	if code != 0 {
+		t.Fatalf("exit %d writing a baseline: %s", code, errOut)
+	}
+	if !strings.Contains(errOut, path) {
+		t.Errorf("the run did not say where the baseline went: %q", errOut)
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // test-owned temp path
+	if err != nil {
+		t.Fatalf("no baseline was written: %v", err)
+	}
+	var decoded struct {
+		Provider string `json:"provider"`
+		Cells    []struct {
+			Case     string `json:"case"`
+			Topology string `json:"topology"`
+			Model    string `json:"model"`
+			Class    string `json:"class"`
+		} `json:"cells"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("the baseline is not JSON: %v", err)
+	}
+	if len(decoded.Cells) == 0 || decoded.Provider != "mock" {
+		t.Fatalf("the baseline records nothing usable: %s", raw)
+	}
+	for _, c := range decoded.Cells {
+		if c.Model == "" {
+			t.Errorf("cell %s/%s carries no model", c.Case, c.Topology)
+		}
+	}
+
+	// Comparing against it: nothing moved.
+	out, _, code := h.run("eval", "--baseline", path)
+	if code != 0 {
+		t.Fatalf("exit %d comparing against a baseline just written:\n%s", code, out)
+	}
+	if !strings.Contains(out, "Nothing moved") {
+		t.Errorf("an unchanged run did not say so:\n%s", out)
+	}
+	if !strings.Contains(out, "one sample") {
+		t.Errorf("the comparison carries no sampling caveat:\n%s", out)
+	}
+
+	// A doctored baseline that claims a currently-failing cell was a hit is a
+	// regression, and the exit status has to say so.
+	doctored := strings.Replace(string(raw), `"class": "hit"`, `"class": "miss",
+      "missing": ["invented-mode"]`, 1)
+	worse := filepath.Join(dir, "worse.json")
+	if err := os.WriteFile(worse, []byte(doctored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code = h.run("eval", "--baseline", worse)
+	if code != 0 {
+		t.Fatalf("a cell that improved should not fail the gate:\n%s", out)
+	}
+	if !strings.Contains(out, "improved") {
+		t.Errorf("the improvement was not reported:\n%s", out)
+	}
+
+	// An unreadable baseline is refused rather than treated as empty, which
+	// would make every cell look new.
+	_, errOut, code = h.run("eval", "--baseline", filepath.Join(dir, "absent.json"))
+	if code == 0 || !strings.Contains(errOut, "MAS-9106") {
+		t.Errorf("a missing baseline exited %d with %q", code, errOut)
+	}
+
+	// The model axis, in Chinese, as JSON.
+	raw2, _, code := h.run("eval", "--models", "mock-1,mock-2", "--baseline", path,
+		"--json", "--lang", "zh")
+	if code != 0 {
+		t.Fatalf("exit %d for the model axis:\n%s", code, raw2)
+	}
+	if !strings.Contains(raw2, "一个样本") {
+		t.Errorf("the Chinese JSON carries no sampling caveat:\n%s", raw2)
+	}
+	if !strings.Contains(raw2, "mock-2") {
+		t.Errorf("the second model never ran:\n%s", raw2)
+	}
+}

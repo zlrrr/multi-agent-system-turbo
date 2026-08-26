@@ -19,6 +19,11 @@ import (
 type Outcome struct {
 	Case     string `json:"case"`
 	Topology string `json:"topology"`
+	// Model is the model this cell actually ran, carried from the job rather
+	// than read from the shared config: a shared read would attribute every
+	// cell's cost to whichever model was configured last, which looks
+	// authoritative and is wrong (specs/008-regression-baselines/plan.md RSK-4).
+	Model string `json:"model,omitempty"`
 
 	Concluded   []string `json:"concluded"`
 	Missing     []string `json:"missing"`

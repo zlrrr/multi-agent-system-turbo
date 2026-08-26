@@ -125,15 +125,19 @@ jobs:
       - name: Build mas
         run: go build -trimpath -o /tmp/mas ./cmd/mas
 
-      - name: Run the corpus against every topology
-        run: /tmp/mas eval --matrix
+      # The baseline gate rather than the absolute one: a cell that
+      # legitimately cannot pass is recorded and stays listed, instead of the
+      # case being deleted to get a green build — and the case is the only
+      # record that the gap exists.
+      - name: Run the corpus against the recorded baseline
+        run: /tmp/mas eval --matrix --baseline internal/eval/baseline.json
 
       # Recorded even when the gate above failed: the JSON is how someone sees
       # which case moved, and a failed run is exactly when they need it.
       - name: Record the result for comparison across runs
         if: always()
         continue-on-error: true
-        run: /tmp/mas eval --matrix --json > eval.json
+        run: /tmp/mas eval --matrix --baseline internal/eval/baseline.json --json > eval.json
 
       - uses: actions/upload-artifact@v4
         if: always()

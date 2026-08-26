@@ -112,8 +112,8 @@ for t in single supervisor plan-execute debate blackboard; do
   mas diagnose -t redis-prod -s "延迟毛刺" --topology "$t" -f json -o "$t.json"
 done
 
-# 运行根因已知的 case 语料库；出现回归时退出码非零
-mas eval --matrix
+# 让根因已知的 case 语料库与已记录的基线比较
+mas eval --matrix --baseline internal/eval/baseline.json
 ```
 
 配置、RBAC、API 与知识包编写详见[用户手册](./docs/zh/user-manual.md)；
@@ -125,7 +125,8 @@ mas eval --matrix
 make build          # 产出 bin/mas 与 bin/sddctl
 make test           # 完整测试套件；任何测试都不需要网络
 make ci             # CI 强制的全部内容：fmt、vet、lint、race 测试、SDD 校验、构建、语料库
-make eval           # 诊断 case 语料库；出现回归时退出码非零
+make eval           # 让 case 语料库与其基线比较；出现回归时退出码非零
+make eval-baseline  # 重新记录基线（提交前请先评审 diff）
 make sdd-verify     # 双语对等、级联新鲜度、需求覆盖、所声明的测试
 make docker         # 容器镜像
 ```

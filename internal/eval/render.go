@@ -227,3 +227,137 @@ func wrapText(s string, width int) string {
 }
 
 var _ = time.Second
+
+// RenderComparisonJSON writes a run and its comparison as one document, so a
+// consumer that wants both does not have to parse two.
+func RenderComparisonJSON(w io.Writer, s Summary, d Delta, lang string) error {
+	d.Caveats = translateCaveats(d, lang)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(map[string]any{
+		"cases":      s.Cases,
+		"topologies": s.Topologies,
+		"provider":   s.Provider,
+		"totals":     s.ByTopology(),
+		"comparison": d,
+	})
+}
+
+// deltaPhrases are the words a comparison uses, per language.
+type deltaPhrases struct {
+	header     string
+	none       string
+	cellCol    string
+	wasCol     string
+	detailCol  string
+	transition map[Transition]string
+}
+
+var deltaEN = deltaPhrases{
+	header:    "Compared against the baseline recorded %s under provider %s",
+	none:      "Nothing moved: every cell matches the baseline.",
+	cellCol:   "CASE / TOPOLOGY / MODEL",
+	wasCol:    "WAS",
+	detailCol: "WHAT CHANGED",
+	transition: map[Transition]string{
+		Regressed:      "REGRESSED",
+		ChangedFailure: "changed failure",
+		Improved:       "improved",
+		KnownBad:       "known-bad",
+		New:            "new",
+		NotRun:         "not run",
+	},
+}
+
+var deltaZH = deltaPhrases{
+	header:    "与 %s 在 provider %s 下记录的基线相比",
+	none:      "没有任何变化：每个格子都与基线一致。",
+	cellCol:   "CASE / 拓扑 / 模型",
+	wasCol:    "原本",
+	detailCol: "变化内容",
+	transition: map[Transition]string{
+		Regressed:      "回归",
+		ChangedFailure: "失败方式改变",
+		Improved:       "改善",
+		KnownBad:       "已知为坏",
+		New:            "新增",
+		NotRun:         "未运行",
+	},
+}
+
+func deltaPhrasesFor(lang string) deltaPhrases {
+	if lang == "zh" {
+		return deltaZH
+	}
+	return deltaEN
+}
+
+// RenderDelta writes a comparison: what regressed, what improved, what is
+// known-bad, and what the numbers do not support.
+//
+// Transitions are grouped and never summed. A single figure here would let a
+// fix and a break cancel, which is the collapse this project has refused at
+// every layer (specs/008-regression-baselines/design-hld.md §2).
+func RenderDelta(w io.Writer, d Delta, lang string) error {
+	p := deltaPhrasesFor(lang)
+
+	fmt.Fprintf(w, p.header+"\n", orUnknown(d.Baseline), orUnknown(d.Provider))
+	if d.Mismatch != "" {
+		fmt.Fprintf(w, "\n! %s\n", wrapText(d.Mismatch, 92))
+	}
+	fmt.Fprintln(w)
+
+	if len(d.Changes) == 0 {
+		fmt.Fprintf(w, "%s\n\n", p.none)
+	} else {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.cellCol, p.wasCol, "NOW", p.detailCol)
+		for _, c := range d.Changes {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+				c.Cell.Key(), orDashText(string(c.Was)),
+				p.transition[c.Transition], c.Detail)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		fmt.Fprintln(w)
+	}
+
+	for _, line := range translateCaveats(d, lang) {
+		fmt.Fprintf(w, "%s\n", wrapText(line, 92))
+	}
+	return nil
+}
+
+// RenderDeltaJSON writes the comparison with its caveats as fields, so an
+// integration cannot drop them by formatting.
+func RenderDeltaJSON(w io.Writer, d Delta, lang string) error {
+	d.Caveats = translateCaveats(d, lang)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(d)
+}
+
+// translateCaveats re-renders a delta's caveats in the requested language.
+// Compare builds them in English because it has no language of its own; the
+// renderer is where an operator's language is known.
+func translateCaveats(d Delta, lang string) []string {
+	if lang != "zh" {
+		return d.Caveats
+	}
+	return deltaCaveats(Summary{Provider: d.Provider}, lang)
+}
+
+func orUnknown(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(unknown)"
+	}
+	return s
+}
+
+func orDashText(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}

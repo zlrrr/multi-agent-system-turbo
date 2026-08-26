@@ -125,8 +125,8 @@ for t in single supervisor plan-execute debate blackboard; do
   mas diagnose -t redis-prod -s "latency spike" --topology "$t" -f json -o "$t.json"
 done
 
-# Run the corpus of cases with known causes; non-zero exit on a regression
-mas eval --matrix
+# Run the corpus of cases with known causes against the recorded baseline
+mas eval --matrix --baseline internal/eval/baseline.json
 ```
 
 See the [user manual](./docs/en/user-manual.md) for configuration, RBAC, the API
@@ -139,7 +139,8 @@ for what `mas eval` measures and how to write your own cases.
 make build          # bin/mas and bin/sddctl
 make test           # the full suite; no test needs a network
 make ci             # what CI enforces: fmt, vet, lint, race tests, SDD checks, build, corpus
-make eval           # the diagnostic case corpus; non-zero exit on a regression
+make eval           # the case corpus against its baseline; non-zero exit on a regression
+make eval-baseline  # re-record the baseline (review the diff before committing)
 make sdd-verify     # parity, cascade freshness, requirement coverage, declared tests
 make docker         # container image
 ```
