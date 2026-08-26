@@ -120,6 +120,10 @@ type DiagnoseRequest struct {
 	Budget   Budget            `json:"budget"`
 	Language string            `json:"language,omitempty"` // report language: "en" | "zh"
 	Options  map[string]string `json:"options,omitempty"`
+	// Principal is set by the HTTP surface from the authenticated caller. It
+	// carries no JSON tag on purpose: a client-supplied principal would be an
+	// attribution anyone could forge.
+	Principal string `json:"-"`
 }
 
 // EvidenceKind types the payload an Evidence carries.
@@ -502,8 +506,14 @@ const (
 // RunRecord is the auditable, replayable trace of one diagnostic run
 // (Constitution Art. V.3).
 type RunRecord struct {
-	ID         string            `json:"id"`
-	Status     RunStatus         `json:"status"`
+	ID     string    `json:"id"`
+	Status RunStatus `json:"status"`
+	// Principal is who asked, taken from the authenticated caller and never
+	// from anything the client can set. Empty for a CLI run, which was made by
+	// whoever could execute the binary — inventing a name for that would be a
+	// fact the system does not have
+	// (specs/009-api-authentication/design-lld.md §5).
+	Principal  string            `json:"principal,omitempty"`
 	Request    DiagnoseRequest   `json:"request"`
 	Target     Target            `json:"target"`
 	StartedAt  time.Time         `json:"started_at"`

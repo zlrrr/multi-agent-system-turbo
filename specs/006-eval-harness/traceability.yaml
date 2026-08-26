@@ -9,14 +9,14 @@ artifacts:
   # cascade Article II.2 exists to enforce.
   - id: goals
     path: ../../docs/en/project-goals.md
-    version: 1.1.8
+    version: 1.2.0
     upstream: null
     derived_from_version: null
   - id: spec
     path: spec.md
     version: 1.1.0
     upstream: goals
-    derived_from_version: 1.1.8
+    derived_from_version: 1.2.0
   - id: plan
     path: plan.md
     version: 1.0.0

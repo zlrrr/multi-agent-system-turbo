@@ -12,6 +12,8 @@ import (
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/httpapi"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
 )
 
 // scopedTestPack has one playbook that applies to every version and one that
@@ -199,4 +201,104 @@ func TestServiceResolvesBeforeUse(t *testing.T) {
 	t.Errorf("%q comes from s.library.For and is never reassigned from Resolve, "+
 		"so a later use reaches an unresolved pack and version scoping is bypassed",
 		boundFrom)
+}
+
+// TestDoctorReportsAPIExposure is FR-014 of feature 009. An operator should be
+// able to see what protects the API before they try to start the server, not
+// after it refuses.
+func TestDoctorReportsAPIExposure(t *testing.T) {
+	find := func(results []service.CheckResult) service.CheckResult {
+		t.Helper()
+		for _, r := range results {
+			if r.Name == "api exposure" {
+				return r
+			}
+		}
+		t.Fatal("mas doctor does not report the API's exposure at all")
+		return service.CheckResult{}
+	}
+
+	// Loopback with nothing configured is fine, and says why.
+	svc := newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Server.Addr = "127.0.0.1:8080"
+	})
+	got := find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckOK {
+		t.Errorf("a loopback bind was graded %q: %s", got.Status, got.Detail)
+	}
+	if !strings.Contains(got.Detail, "loopback") {
+		t.Errorf("the detail does not say the API is loopback-only: %q", got.Detail)
+	}
+
+	// Off-host with nothing configured is a failure, not a warning: it is the
+	// same judgement that will stop the server from starting.
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Server.Addr = "0.0.0.0:8080"
+	})
+	got = find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckWarn {
+		t.Errorf("an unauthenticated public bind was graded %q, want warn: %s",
+			got.Status, got.Detail)
+	}
+	// Warn rather than fail, because most runs never open a listener — but the
+	// detail has to say plainly that serving is what will be refused, or the
+	// warning reads as optional.
+	if !strings.Contains(got.Detail, "refuse") {
+		t.Errorf("the warning does not say `mas serve` will refuse: %q", got.Detail)
+	}
+
+	// Configured properly, it says who may do what — by name and scope, never
+	// by credential.
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Server.Addr = "0.0.0.0:8080"
+		cfg.Server.TLS = config.ServerTLS{TerminatedByProxy: true}
+		cfg.Server.Auth = config.ServerAuth{Tokens: []config.APIToken{
+			{Name: "dashboard", Token: "s3cret-value", Scopes: []string{"read"}},
+			{Name: "oncall", Token: "other-s3cret", Scopes: []string{"read", "diagnose"}},
+		}}
+	})
+	got = find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckOK {
+		t.Errorf("a properly configured API was graded %q: %s", got.Status, got.Detail)
+	}
+	for _, want := range []string{"dashboard", "oncall", "diagnose", "proxy"} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("the detail does not mention %s: %q", want, got.Detail)
+		}
+	}
+	for _, banned := range []string{"s3cret-value", "other-s3cret"} {
+		if strings.Contains(got.Detail, banned) {
+			t.Errorf("mas doctor printed a credential: %q", got.Detail)
+		}
+	}
+}
+
+// TestDoctorAndAdmitAgreeOnLoopback pins the one duplication feature 009
+// leaves behind. `internal/httpapi` imports `internal/service`, so the address
+// test cannot be shared without a cycle — and two copies of a security
+// predicate that disagree is worse than one copy in the wrong place.
+func TestDoctorAndAdmitAgreeOnLoopback(t *testing.T) {
+	for _, addr := range []string{
+		"127.0.0.1:8080", "localhost:8080", "[::1]:8080", "127.0.0.9:1",
+		"0.0.0.0:8080", ":8080", "[::]:8080", "10.0.0.1:8080", "",
+	} {
+		svc := newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+			cfg.Server.Addr = addr
+		})
+		var detail string
+		for _, r := range svc.Doctor(context.Background()) {
+			if r.Name == "api exposure" {
+				detail = r.Detail
+			}
+		}
+		doctorSaysLoopback := strings.Contains(detail, "loopback only")
+
+		// Admit permits an unauthenticated bind exactly when it is loopback.
+		admitAllows := httpapi.Admit(config.ServerConfig{Addr: addr}) == nil
+
+		if doctorSaysLoopback != admitAllows {
+			t.Errorf("%q: doctor says loopback=%v but Admit allows unauthenticated=%v",
+				addr, doctorSaysLoopback, admitAllows)
+		}
+	}
 }

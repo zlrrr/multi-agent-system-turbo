@@ -246,8 +246,60 @@ ServiceAccount token。
 | `addr` | `:8080` | 监听地址 |
 | `read_timeout` | `30s` | 请求读取超时 |
 | `write_timeout` | `120s` | 响应写入超时 |
+| `auth.tokens[]` | *（无）* | API 接受的 Bearer 凭据 |
+| `tls.cert_file` / `tls.key_file` | *（无）* | 用这一对证书与私钥提供 TLS |
+| `tls.terminated_by_proxy` | `false` | 本进程之前已有组件终止 TLS |
 
-API 目前尚无认证。请勿将其暴露到可信网络之外。
+### 挂在地址上的那条规则
+
+这个要求不是一个开关 —— 它由"这个套接字能被谁访问到"推出：
+
+| 监听地址 | 认证 | TLS | 结果 |
+|---|---|---|---|
+| 回环（`127.0.0.1`、`[::1]`、`localhost`） | 不要求 | 不要求 | 启动 |
+| 其他任何地址 | **必需** | —— | 拒绝启动（`MAS-7010`） |
+| 其他任何地址 | 已配置 | 缺失，且未声明代理 | 拒绝启动（`MAS-7011`） |
+| 其他任何地址 | 已配置 | 已提供，或已声明代理 | 启动 |
+
+笔记本上无需任何配置，而暴露出去的部署，也不会因为谁忘了设置而处于未认证状态。
+`mas doctor` 会以警告形式报告暴露面；`mas serve` 则直接拒绝。
+
+`terminated_by_proxy` 记录的是本进程无法验证的一个事实 ——
+它前面有一个 ingress 或 sidecar 在终止 TLS。它必须被亲手写下，
+因为"写下它"本身就是那份确认。
+
+### `server.auth.tokens[]`
+
+| 键 | 含义 |
+|---|---|
+| `name` | 主体。它是审计行中出现的名字，也是运行记录中作为调用者被记下的名字 |
+| `token` | 凭据，以密钥形式给出：字面量、`${env:VAR}` 或 `${file:/path}` |
+| `scopes` | `read`、`diagnose`，或两者 |
+
+```yaml
+server:
+  addr: "0.0.0.0:8080"
+  auth:
+    tokens:
+      - name: dashboard
+        token: "${env:MAS_DASHBOARD_TOKEN}"
+        scopes: [read]
+      - name: oncall
+        token: "${file:/etc/mas/oncall.token}"
+        scopes: [read, diagnose]
+  tls:
+    terminated_by_proxy: true
+```
+
+`read` 覆盖一切已经算好的东西：已存储的诊断、目标、拓扑、知识包与 `/metrics`。
+`diagnose` 覆盖 `POST /api/v1/diagnoses` —— 它会花掉模型 token 并读取生产遥测 ——
+一个状态页需要前者，且绝不该拥有后者。
+
+没有任何 scope 的 token，或含本版本不认识 scope 的 token，会在加载时失败（`MAS-7013`）。
+一个被忽略的 scope，是一次你以为自己已经授出的授权。
+
+`/healthz` 与 `/readyz` 永不要求凭据：
+一个需要凭据的存活探针，会在凭据出问题时一起失败。
 
 ## `safety`
 

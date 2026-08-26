@@ -404,6 +404,46 @@ curl -s localhost:8080/api/v1/diagnoses?wait=true \
 Every failure response carries a `code`, a `message` in the configured language,
 and a `remedy`.
 
+### Authentication
+
+Binding anything other than loopback requires credentials, and the process
+refuses to start without them:
+
+```yaml
+server:
+  addr: "0.0.0.0:8080"
+  auth:
+    tokens:
+      - name: dashboard
+        token: "${env:MAS_DASHBOARD_TOKEN}"
+        scopes: [read]
+      - name: oncall
+        token: "${file:/etc/mas/oncall.token}"
+        scopes: [read, diagnose]
+  tls:
+    terminated_by_proxy: true    # or set cert_file and key_file
+```
+
+```bash
+curl -s https://mas.internal/api/v1/targets -H "Authorization: Bearer $TOKEN"
+```
+
+`read` covers everything already computed; `diagnose` covers starting a run,
+which spends model tokens and reads production telemetry. A status page needs
+the first and must not have the second.
+
+`127.0.0.1` needs none of this — the host is already the boundary, so the local
+workflow is unchanged. What you cannot do is expose the API and forget:
+`mas serve` refuses (`MAS-7010`), and serving a bearer token over plaintext
+off-host refuses too (`MAS-7011`) unless you state that a proxy terminates TLS.
+
+`mas doctor` shows the exposure and what protects it — by principal and scope,
+never the credential. Every run records who asked for it, and that appears in
+`GET /api/v1/diagnoses/{id}` as `principal`.
+
+`/healthz` and `/readyz` stay anonymous. `/metrics` does not: it carries target
+names and run counts.
+
 ## 11. Auditing and replaying a run
 
 Every run is persisted: the request, every tool call with its arguments and
@@ -524,8 +564,12 @@ switch someone deliberately set.
 
 Honest scope, so you can plan around it:
 
-- **API authentication** — do not expose the API outside a trusted network yet.
 - **A web UI** — CLI and API only for now.
+- **Per-target authorisation** — a credential that may diagnose may diagnose
+  any configured target. Splitting that needs a tenancy model, which is not
+  here yet.
+- **Rate limiting** — a run's budget bounds what one call can spend, but
+  nothing bounds how many calls arrive.
 
 ## 15. Getting help
 

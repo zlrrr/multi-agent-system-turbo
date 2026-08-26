@@ -119,6 +119,11 @@ Every error crossing a boundary carries a stable `MAS-NNNN` code, allocated by d
 | `MAS-7002` | error | `MethodNotAllowed` | method %s not allowed on %s | Use the documented method for this endpoint. |
 | `MAS-7003` | error | `ServerInternal` | internal server error: %s | Check the server logs for the correlated run_id. |
 | `MAS-7005` | error | `ServerStartFailed` | server failed to start on %s: %s | Check that the address is free and the process may bind it. |
+| `MAS-7010` | error | `APIUnauthenticated` | the API would bind %s with no authentication configured | Anything that can reach that address could list your targets, read stored diagnoses and start new ones. Configure `server.auth.tokens`, or bind 127.0.0.1 and put your own proxy in front. |
+| `MAS-7011` | error | `APIPlaintextCredentials` | the API would serve credentials over plaintext on %s | A bearer token on an unencrypted connection is a token on the wire. Set `server.tls.cert_file` and `key_file`, or set `server.tls.terminated_by_proxy: true` if something in front of this process terminates TLS. |
+| `MAS-7012` | error | `APICredentialMissing` | the request carried no usable credential | Send `Authorization: Bearer <token>` with a token configured under `server.auth.tokens`. |
+| `MAS-7013` | error | `APITokenScopeInvalid` | API token %q is unusable: %s | Every token must declare at least one scope, and every scope must be one this build knows. An ignored scope is an authorisation you believe you granted. |
+| `MAS-7014` | error | `APIScopeMissing` | the credential lacks the %q scope this route requires | Add the scope to this token under `server.auth.tokens[].scopes`, or call with a token that has it. |
 | `MAS-7404` | error | `NotFound` | not found: %s | Check the identifier in the request path. |
 
 ## Safety guard

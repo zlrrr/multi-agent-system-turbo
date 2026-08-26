@@ -103,10 +103,10 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |
 | **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock — routable per agent role, with cost reported per role when you supply prices |
 | **Topologies** | `supervisor` (default), `single` (control condition), `plan-execute` (adaptive), `debate` (adversarial), `blackboard` (data-driven) |
-| **Interfaces** | CLI, HTTP API, container image |
+| **Interfaces** | CLI, HTTP API (bearer tokens with `read`/`diagnose` scopes; refuses to bind off-host without them), container image |
 
-Deliberately not here yet: in-container command execution on Kubernetes, API
-authentication, a web UI. The [user manual](./docs/en/user-manual.md#14-what-is-deliberately-not-here-yet)
+Deliberately not here yet: a web UI, per-target authorisation, rate limiting.
+The [user manual](./docs/en/user-manual.md#14-what-is-deliberately-not-here-yet)
 says so plainly so you can plan around it.
 
 ## Quick start

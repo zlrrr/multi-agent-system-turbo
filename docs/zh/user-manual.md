@@ -364,6 +364,44 @@ curl -s localhost:8080/api/v1/diagnoses?wait=true \
 
 每个失败响应都携带 `code`、按配置语言给出的 `message`，以及 `remedy`。
 
+### 认证
+
+监听回环以外的任何地址都需要凭据，否则进程拒绝启动：
+
+```yaml
+server:
+  addr: "0.0.0.0:8080"
+  auth:
+    tokens:
+      - name: dashboard
+        token: "${env:MAS_DASHBOARD_TOKEN}"
+        scopes: [read]
+      - name: oncall
+        token: "${file:/etc/mas/oncall.token}"
+        scopes: [read, diagnose]
+  tls:
+    terminated_by_proxy: true    # 或者设置 cert_file 与 key_file
+```
+
+```bash
+curl -s https://mas.internal/api/v1/targets -H "Authorization: Bearer $TOKEN"
+```
+
+`read` 覆盖一切已经算好的东西；`diagnose` 覆盖"发起一次运行"——
+它会花掉模型 token 并读取生产遥测。一个状态页需要前者，且绝不该拥有后者。
+
+`127.0.0.1` 不需要上述任何配置 —— 主机本身就是边界，因此本地工作流丝毫未变。
+你唯一做不到的，是"把 API 暴露出去然后忘了这回事"：
+`mas serve` 会拒绝（`MAS-7010`）；
+在主机之外以明文传输 Bearer token 同样会被拒绝（`MAS-7011`），
+除非你声明由代理终止 TLS。
+
+`mas doctor` 会显示暴露面以及保护它的是什么 —— 按主体与 scope，绝不显示凭据本身。
+每一次运行都会记录是谁请求的，它会作为 `principal` 出现在
+`GET /api/v1/diagnoses/{id}` 的响应中。
+
+`/healthz` 与 `/readyz` 保持匿名。`/metrics` 不是：它携带目标名与运行次数。
+
 ## 11. 审计与重放
 
 每次运行都会被持久化：请求、每一次工具调用及其参数与脱敏后的结果、每一次模型交互，以及
@@ -478,8 +516,11 @@ envs:
 
 如实说明范围，方便你据此规划：
 
-- **API 认证** —— 暂时不要把 API 暴露到可信网络之外。
 - **Web UI** —— 当前只有 CLI 与 API。
+- **按目标授权** —— 一个可以做诊断的凭据，可以诊断任何已配置的目标。
+  要拆开这一点需要一套租户模型，而它尚未提供。
+- **限流** —— 一次运行的预算限定了单次调用能花多少，
+  但没有任何东西限定"来了多少次调用"。
 
 ## 15. 获取帮助
 

@@ -45,6 +45,13 @@ func stubTelemetry(t *testing.T) (string, string) {
 
 func newServer(t *testing.T) *httpapi.Server {
 	t.Helper()
+	return newServerWith(t, nil)
+}
+
+// newServerWith builds a server whose configuration a test may adjust — which
+// is how the authentication tests reach a configuration with tokens on it.
+func newServerWith(t *testing.T, mutate func(*config.Config)) *httpapi.Server {
+	t.Helper()
 	promURL, lokiURL := stubTelemetry(t)
 	cfg := config.Default()
 	cfg.Log.Level = "error"
@@ -64,6 +71,9 @@ func newServer(t *testing.T) *httpapi.Server {
 		ID: "redis-prod", Kind: "redis", Version: "7.2.4",
 		Labels: map[string]string{"instance": "redis-0"},
 	}}
+	if mutate != nil {
+		mutate(cfg)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +82,11 @@ func newServer(t *testing.T) *httpapi.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = svc.Close() })
-	return httpapi.New(svc)
+	srv, err := httpapi.New(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
 }
 
 func do(t *testing.T, s *httpapi.Server, method, path string, body any) *httptest.ResponseRecorder {

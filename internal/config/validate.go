@@ -24,6 +24,34 @@ func (c *Config) Validate() error {
 	var problems []string
 	bad := func(path, msg string) { problems = append(problems, path+": "+msg) }
 
+	seenToken := map[string]bool{}
+	for i, t := range c.Server.Auth.Tokens {
+		path := fmt.Sprintf("server.auth.tokens[%d]", i)
+		switch {
+		case strings.TrimSpace(t.Name) == "":
+			bad(path+".name", "must be set: it is the principal an audit line names")
+		case seenToken[t.Name]:
+			bad(path+".name", fmt.Sprintf("duplicate token name %q", t.Name))
+		}
+		seenToken[t.Name] = true
+		if t.Token.IsZero() {
+			bad(path+".token", "must be set")
+		}
+		if len(t.Scopes) == 0 {
+			problems = append(problems, errs.New("MAS-7013", t.Name,
+				"declares no scopes, so it can do nothing").Error())
+		}
+		for _, sc := range t.Scopes {
+			if !APIScopes[sc] {
+				problems = append(problems, errs.New("MAS-7013", t.Name,
+					fmt.Sprintf("scope %q is not one of read, diagnose", sc)).Error())
+			}
+		}
+	}
+	if (c.Server.TLS.CertFile == "") != (c.Server.TLS.KeyFile == "") {
+		bad("server.tls", "cert_file and key_file must be set together")
+	}
+
 	switch c.Log.Level {
 	case "", "debug", "info", "warn", "error":
 	default:

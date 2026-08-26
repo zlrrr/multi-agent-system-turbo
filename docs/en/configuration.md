@@ -265,8 +265,62 @@ Records carry a SHA-256 digest. A modified or truncated record is refused with
 | `addr` | `:8080` | Listen address |
 | `read_timeout` | `30s` | Request read timeout |
 | `write_timeout` | `120s` | Response write timeout |
+| `auth.tokens[]` | *(none)* | Bearer credentials the API accepts |
+| `tls.cert_file` / `tls.key_file` | *(none)* | Serve TLS from this pair |
+| `tls.terminated_by_proxy` | `false` | Something in front of this process terminates TLS |
 
-The API has no authentication yet. Do not expose it outside a trusted network.
+### The rule that attaches to the address
+
+The requirement is not a flag — it follows from what the socket can reach:
+
+| Bind address | Authentication | TLS | Result |
+|---|---|---|---|
+| loopback (`127.0.0.1`, `[::1]`, `localhost`) | not required | not required | starts |
+| anything else | **required** | — | refuses to start (`MAS-7010`) |
+| anything else | configured | absent, no proxy declared | refuses to start (`MAS-7011`) |
+| anything else | configured | served, or proxy declared | starts |
+
+A laptop needs no configuration, and an exposed deployment cannot be
+unauthenticated by someone forgetting a setting. `mas doctor` reports the
+exposure as a warning; `mas serve` refuses.
+
+`terminated_by_proxy` records a fact this process cannot verify — that an
+ingress or sidecar terminates TLS in front of it. It has to be typed, because
+typing it is the acknowledgement.
+
+### `server.auth.tokens[]`
+
+| Key | Meaning |
+|---|---|
+| `name` | The principal. It is what an audit line names and what a run record records as the caller |
+| `token` | The credential, as a secret: a literal, `${env:VAR}` or `${file:/path}` |
+| `scopes` | `read`, `diagnose`, or both |
+
+```yaml
+server:
+  addr: "0.0.0.0:8080"
+  auth:
+    tokens:
+      - name: dashboard
+        token: "${env:MAS_DASHBOARD_TOKEN}"
+        scopes: [read]
+      - name: oncall
+        token: "${file:/etc/mas/oncall.token}"
+        scopes: [read, diagnose]
+  tls:
+    terminated_by_proxy: true
+```
+
+`read` covers everything already computed: stored diagnoses, targets,
+topologies, packs and `/metrics`. `diagnose` covers `POST /api/v1/diagnoses`,
+which spends model tokens and reads production telemetry — a status page needs
+the first and must not have the second.
+
+A token with no scopes, or a scope this build does not recognise, fails at load
+(`MAS-7013`). An ignored scope is an authorisation you believe you granted.
+
+`/healthz` and `/readyz` never require a credential: a liveness probe that needs
+one is a liveness probe that fails during a credential problem.
 
 ## `safety`
 

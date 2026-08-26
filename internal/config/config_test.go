@@ -314,3 +314,61 @@ func TestEnvKeysAreSortedAndComplete(t *testing.T) {
 		}
 	}
 }
+
+// TestScopelessOrUnknownScopeIsRejectedAtLoad is FR-013 of feature 009 and
+// CON-001. An ignored scope is an authorisation the operator believes they
+// granted, which is worse than one that fails loudly.
+func TestScopelessOrUnknownScopeIsRejectedAtLoad(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		token APIToken
+		want  string
+	}{
+		{"no scopes", APIToken{Name: "a", Token: "t"}, "MAS-7013"},
+		{"unknown scope", APIToken{Name: "a", Token: "t", Scopes: []string{"admin"}}, "MAS-7013"},
+		{"one good one bad", APIToken{Name: "a", Token: "t", Scopes: []string{"read", "write"}}, "MAS-7013"},
+		{"no name", APIToken{Token: "t", Scopes: []string{"read"}}, "server.auth.tokens[0].name"},
+		{"no token", APIToken{Name: "a", Scopes: []string{"read"}}, "server.auth.tokens[0].token"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Server.Auth = ServerAuth{Tokens: []APIToken{c.token}}
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("an unusable token was accepted")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error %v does not mention %s", err, c.want)
+			}
+		})
+	}
+
+	// Two tokens may not share a name: the name is the principal an audit line
+	// records, and two of them make an audit trail ambiguous.
+	cfg := Default()
+	cfg.Server.Auth = ServerAuth{Tokens: []APIToken{
+		{Name: "same", Token: "a", Scopes: []string{"read"}},
+		{Name: "same", Token: "b", Scopes: []string{"read"}},
+	}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("two tokens shared a principal name: %v", err)
+	}
+
+	// A well-formed set loads.
+	cfg = Default()
+	cfg.Server.Auth = ServerAuth{Tokens: []APIToken{
+		{Name: "dashboard", Token: "a", Scopes: []string{"read"}},
+		{Name: "oncall", Token: "b", Scopes: []string{"read", "diagnose"}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("a valid token set was refused: %v", err)
+	}
+
+	// TLS halves must arrive together, or an operator believes they configured
+	// TLS and did not.
+	cfg = Default()
+	cfg.Server.TLS = ServerTLS{CertFile: "/tls.crt"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.tls") {
+		t.Errorf("a half-configured TLS pair was accepted: %v", err)
+	}
+}

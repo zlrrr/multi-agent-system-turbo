@@ -256,10 +256,47 @@ type StoreConfig struct {
 
 // ServerConfig configures the HTTP surface.
 type ServerConfig struct {
-	Addr         string   `yaml:"addr" json:"addr"`
-	ReadTimeout  Duration `yaml:"read_timeout" json:"read_timeout"`
-	WriteTimeout Duration `yaml:"write_timeout" json:"write_timeout"`
+	Addr         string     `yaml:"addr" json:"addr"`
+	ReadTimeout  Duration   `yaml:"read_timeout" json:"read_timeout"`
+	WriteTimeout Duration   `yaml:"write_timeout" json:"write_timeout"`
+	Auth         ServerAuth `yaml:"auth" json:"auth"`
+	TLS          ServerTLS  `yaml:"tls" json:"tls"`
 }
+
+// ServerAuth lists the credentials the API accepts. An empty list means the
+// API is unauthenticated, which `httpapi.Admit` permits only on a loopback
+// bind (specs/009-api-authentication/design-hld.md §2).
+type ServerAuth struct {
+	Tokens []APIToken `yaml:"tokens" json:"tokens"`
+}
+
+// APIToken is one bearer credential and what it may do.
+type APIToken struct {
+	// Name is the principal: what an audit line names and what a run record
+	// records as the caller.
+	Name   string   `yaml:"name" json:"name"`
+	Token  Secret   `yaml:"token" json:"token"`
+	Scopes []string `yaml:"scopes" json:"scopes"`
+}
+
+// ServerTLS describes how the API is protected on the wire.
+type ServerTLS struct {
+	CertFile string `yaml:"cert_file" json:"cert_file"`
+	KeyFile  string `yaml:"key_file" json:"key_file"`
+	// TerminatedByProxy records a fact the tool cannot verify: that something
+	// in front of this process terminates TLS. It is an operator's statement,
+	// which is why it has to be typed rather than inferred — and why serving
+	// credentials in plaintext off-host is refused without it.
+	TerminatedByProxy bool `yaml:"terminated_by_proxy" json:"terminated_by_proxy"`
+}
+
+// Enabled reports whether the server serves TLS itself.
+func (t ServerTLS) Enabled() bool { return t.CertFile != "" && t.KeyFile != "" }
+
+// APIScopes are the scopes a token may hold. Deny by default: a scope this
+// build does not recognise fails at load rather than being ignored, because an
+// ignored scope is an authorisation the operator believes they granted.
+var APIScopes = map[string]bool{"read": true, "diagnose": true}
 
 // SafetyConfig may only narrow the guard, never widen it (HLD §7.3.4).
 type SafetyConfig struct {

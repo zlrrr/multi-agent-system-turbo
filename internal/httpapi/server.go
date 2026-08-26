@@ -6,6 +6,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 type Server struct {
 	svc     *service.Service
 	mux     *http.ServeMux
+	auth    *Authorizer
 	started time.Time
 
 	mu      sync.Mutex
@@ -35,14 +37,38 @@ type Server struct {
 }
 
 // New builds a server around a Service.
-func New(svc *service.Service) *Server {
-	s := &Server{svc: svc, mux: http.NewServeMux(), started: time.Now(), running: map[string]bool{}}
+//
+// It returns an error rather than a value alone because building the authorizer
+// resolves the configured token secrets, and a secret that cannot be resolved
+// must stop the server rather than silently leave a credential unusable.
+func New(svc *service.Service) (*Server, error) {
+	cfg := svc.Config()
+	auth, err := NewAuthorizer(cfg.Server, cfg.Run.Language, nil)
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{
+		svc: svc, mux: http.NewServeMux(), auth: auth,
+		started: time.Now(), running: map[string]bool{},
+	}
 	s.routes()
-	return s
+	return s, nil
 }
 
-// Handler returns the router, which is what tests exercise.
-func (s *Server) Handler() http.Handler { return s.mux }
+// Handler returns the router behind the authorizer, which is what tests
+// exercise — the same handler `Serve` mounts, so no test can accidentally
+// exercise an unguarded surface.
+func (s *Server) Handler() http.Handler { return s.auth.Wrap(s.mux) }
+
+// Routes lists the patterns the mux serves, for the structural test that every
+// one of them is either guarded or deliberately anonymous.
+func (s *Server) Routes() []string {
+	return []string{
+		"/api/v1/diagnoses", "/api/v1/diagnoses/", "/api/v1/targets",
+		"/api/v1/topologies", "/api/v1/packs",
+		"/healthz", "/readyz", "/metrics", "/",
+	}
+}
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/diagnoses", s.handleDiagnoses)
@@ -65,7 +91,16 @@ type errorBody struct {
 }
 
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
-	lang := s.svc.Config().Run.Language
+	body := writeCodedError(w, status, err, s.svc.Config().Run.Language)
+	obs.Log(r.Context()).Warn("request failed",
+		"path", r.URL.Path, "status", status, "code", body.Code)
+}
+
+// writeCodedError renders a failure as the wire form: always a code, so a
+// client can react programmatically rather than by matching on prose. It is
+// shared with the authorizer, which refuses requests before a handler — and
+// before a Server — is involved.
+func writeCodedError(w http.ResponseWriter, status int, err error, lang string) errorBody {
 	body := errorBody{Code: errs.CodeOf(err), Message: err.Error()}
 	if e, ok := errs.AsError(err); ok {
 		body.Code, body.Message, body.Remedy = e.Code(), e.Message(lang), e.Remedy(lang)
@@ -73,9 +108,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, 
 	if body.Code == "" {
 		body.Code = "MAS-7003"
 	}
-	obs.Log(r.Context()).Warn("request failed",
-		"path", r.URL.Path, "status", status, "code", body.Code)
 	writeJSON(w, status, body)
+	return body
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -173,6 +207,9 @@ func (s *Server) createDiagnosis(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
+	// From the authenticated caller, never from the body: a client-supplied
+	// principal is an attribution anyone can forge.
+	req.Principal = PrincipalFrom(r.Context()).Name
 	// Admission runs before anything is created, so a malformed request never
 	// leaves a half-formed run behind.
 	admitted, err := s.svc.Admit(req)
@@ -256,7 +293,10 @@ func (s *Server) handleDiagnosis(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": rec.ID, "status": rec.Status, "started_at": rec.StartedAt,
 		"finished_at": rec.FinishedAt, "usage": rec.Usage, "versions": rec.Versions,
-		"report": rec.Report,
+		// Who asked belongs in the default projection, not behind ?steps=true:
+		// it is the first thing a cost or access review looks for.
+		"principal": rec.Principal,
+		"report":    rec.Report,
 	})
 }
 
@@ -366,12 +406,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // signalled, then shuts down gracefully so an in-flight diagnosis can finish.
 func Serve(ctx context.Context, svc *service.Service) error {
 	cfg := svc.Config().Server
+	// Before the listener opens: a configuration that would expose an
+	// unauthenticated or plaintext-credentialled API off-host stops the
+	// process here, where someone is looking.
+	if err := Admit(cfg); err != nil {
+		return err
+	}
+	server, err := New(svc)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           New(svc).Handler(),
+		Handler:           server.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       cfg.ReadTimeout.D(),
 		WriteTimeout:      cfg.WriteTimeout.D(),
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -379,7 +430,11 @@ func Serve(ctx context.Context, svc *service.Service) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		listen := srv.ListenAndServe
+		if cfg.TLS.Enabled() {
+			listen = func() error { return srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile) }
+		}
+		if err := listen(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- errs.Wrap(err, "MAS-7005", cfg.Addr, err.Error())
 		}
 		close(errCh)

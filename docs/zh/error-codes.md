@@ -118,6 +118,11 @@
 | `MAS-7002` | error | `MethodNotAllowed` | %s 方法不允许用于 %s | 请对该端点使用文档规定的方法。 |
 | `MAS-7003` | error | `ServerInternal` | 服务器内部错误：%s | 根据关联的 run_id 检查服务端日志。 |
 | `MAS-7005` | error | `ServerStartFailed` | 服务器在 %s 上启动失败：%s | 确认该地址未被占用且进程有权绑定。 |
+| `MAS-7010` | error | `APIUnauthenticated` | API 将在 %s 上监听，但未配置任何认证 | 任何能访问到该地址的东西，都可以列出你的目标、读取已存储的诊断，并发起新的诊断。请配置 `server.auth.tokens`，或改为监听 127.0.0.1 并在其前面放置你自己的代理。 |
+| `MAS-7011` | error | `APIPlaintextCredentials` | API 将在 %s 上以明文传输凭据 | 未加密连接上的 Bearer token，就是一份放在线路上的凭据。请设置 `server.tls.cert_file` 与 `key_file`；若本进程之前已有组件终止 TLS，则设置 `server.tls.terminated_by_proxy: true`。 |
+| `MAS-7012` | error | `APICredentialMissing` | 请求未携带可用的凭据 | 请在请求中携带 `Authorization: Bearer <token>`，其中 token 需在 `server.auth.tokens` 下配置。 |
+| `MAS-7013` | error | `APITokenScopeInvalid` | API token %q 不可用：%s | 每个 token 至少要声明一个 scope，且每个 scope 都必须是本版本认识的。一个被忽略的 scope，是一次你以为自己已经授出的授权。 |
+| `MAS-7014` | error | `APIScopeMissing` | 该凭据缺少此路由所需的 %q scope | 请在 `server.auth.tokens[].scopes` 下给该 token 加上这个 scope，或改用已具备该 scope 的 token 调用。 |
 | `MAS-7404` | error | `NotFound` | 未找到：%s | 检查请求路径中的标识符。 |
 
 ## 安全守卫

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/loki"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/collector/promql"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/config"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter"
 	"github.com/zlrrr/multi-agent-system-turbo/internal/envadapter/kube"
@@ -19,6 +21,96 @@ import (
 	"github.com/zlrrr/multi-agent-system-turbo/internal/source"
 	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
 )
+
+// apiExposureStatus grades the API's configuration.
+//
+// A configuration `httpapi.Admit` would refuse is a **warning** here, not a
+// failure, and the split is deliberate. `mas doctor` describes a configuration;
+// `mas serve` acts on one. Most runs of this tool never open a listener at all,
+// and grading an unused surface as a failure would make `mas doctor` red for
+// every CLI-only operator — which is how a red build stops meaning anything.
+//
+// The refusal still happens, at the moment it matters, from Admit. The detail
+// below says so in as many words, so nobody reads the warning as optional.
+func apiExposureStatus(cfg config.ServerConfig) CheckStatus {
+	if serverIsLoopback(cfg.Addr) {
+		return CheckOK
+	}
+	switch {
+	case len(cfg.Auth.Tokens) == 0:
+		return CheckWarn
+	case !cfg.TLS.Enabled() && !cfg.TLS.TerminatedByProxy:
+		return CheckWarn
+	default:
+		return CheckOK
+	}
+}
+
+// describeExposure says what protects the API, naming principals and scopes but
+// never a token, a digest or a length.
+func describeExposure(cfg config.ServerConfig) string {
+	reach := "reachable off-host"
+	if serverIsLoopback(cfg.Addr) {
+		reach = "loopback only"
+	}
+
+	who := "no authentication configured"
+	if n := len(cfg.Auth.Tokens); n > 0 {
+		names := make([]string, 0, n)
+		for _, t := range cfg.Auth.Tokens {
+			names = append(names, fmt.Sprintf("%s[%s]", t.Name, strings.Join(t.Scopes, "+")))
+		}
+		who = fmt.Sprintf("%d credential(s): %s", n, strings.Join(names, ", "))
+	}
+
+	wire := "plaintext"
+	switch {
+	case cfg.TLS.Enabled():
+		wire = "TLS served here"
+	case cfg.TLS.TerminatedByProxy:
+		wire = "TLS declared terminated by a proxy"
+	}
+
+	out := fmt.Sprintf("%s (%s); %s; %s", orUnset(cfg.Addr), reach, who, wire)
+	if apiExposureStatus(cfg) != CheckOK {
+		out += " — `mas serve` will refuse to start with this"
+	}
+	return out
+}
+
+// serverIsLoopback mirrors httpapi.Admit's address test. It is written here
+// rather than imported because internal/httpapi imports internal/service and
+// the reverse would be a cycle; a test asserts the two agree.
+func serverIsLoopback(addr string) bool {
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return ip.IsLoopback()
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
+}
+
+func orUnset(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(unset)"
+	}
+	return s
+}
 
 // CheckStatus grades one self-check.
 type CheckStatus string
@@ -60,6 +152,9 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 	t0 := time.Now()
 	add("configuration", CheckOK, fmt.Sprintf("valid; %d target(s), %d environment(s)",
 		len(s.cfg.Targets), len(s.cfg.Envs)), nil, t0)
+
+	t0 = time.Now()
+	add("api exposure", apiExposureStatus(s.cfg.Server), describeExposure(s.cfg.Server), nil, t0)
 
 	t0 = time.Now()
 	if s.library.Len() == 0 {

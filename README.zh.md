@@ -91,9 +91,9 @@ Redis 已达到其配置的内存上限。驱逐先于延迟上升发生，且�
 | **源码** | 网络仓库并在不可达时自动回退到本地镜像，另含代码检索 |
 | **模型** | Anthropic、任意 OpenAI 兼容端点，以及确定性 mock —— 可按 Agent 角色路由；在你提供价格后可按角色报告成本 |
 | **拓扑** | `supervisor`（默认）、`single`（对照组）、`plan-execute`（自适应）、`debate`（对抗式）、`blackboard`（数据驱动） |
-| **接口** | CLI、HTTP API、容器镜像 |
+| **接口** | CLI、HTTP API（Bearer token，带 `read`/`diagnose` scope；未配置时拒绝在主机之外监听）、容器镜像 |
 
-明确尚未提供：Kubernetes 容器内命令执行、API 认证、Web UI。
+明确尚未提供：Web UI、按目标授权、限流。
 [用户手册](./docs/zh/user-manual.md#14-当前明确尚未提供的能力) 会如实说明，方便你据此规划。
 
 ## 快速上手
