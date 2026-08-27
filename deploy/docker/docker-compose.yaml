@@ -1,0 +1,39 @@
+# A minimal deployment: MAS-Turbo serving its HTTP API against an existing
+# observability stack.
+#
+# MAS-Turbo reads from Prometheus, Loki and (optionally) a Kubernetes API
+# server. It never writes to any of them, so no credential here needs more than
+# read permission — and giving it more would defeat the point.
+services:
+  mas:
+    image: ghcr.io/zlrrr/multi-agent-system-turbo:latest
+    container_name: mas-turbo
+    command: ["serve"]
+    ports:
+      - "8080:8080"
+    environment:
+      MAS_CONFIG: /etc/mas/mas.yaml
+      MAS_LOG_LEVEL: info
+      # Provide the model credential through the environment, never in the file.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./mas.yaml:/etc/mas/mas.yaml:ro
+      - mas-runs:/var/lib/mas
+      # Mount a read-only kubeconfig to enable online mode:
+      # - ${HOME}/.kube/config:/etc/mas/kubeconfig:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mas", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mas-runs:

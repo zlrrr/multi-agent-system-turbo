@@ -1,0 +1,48 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: redis-persistence-failure
+  middleware: redis
+  version: "7.2.4"
+  title:
+    en: "Writes rejected with MISCONF after a failed RDB save"
+    zh: "RDB 保存失败后写入被 MISCONF 拒绝"
+  description:
+    en: >-
+      The last background save failed and Redis is refusing writes. Memory is at
+      44% of the limit, evictions are at zero and fragmentation is normal — the
+      "memory looks high" in the report is what an operator noticed, not what
+      broke. A diagnosis reaching memory pressure here would send someone to
+      raise maxmemory on an instance whose disk is the problem.
+    zh: >-
+      上一次后台保存失败，Redis 正在拒绝写入。内存占用为上限的 44%，
+      驱逐为 0，碎片率正常 —— 报告中"内存看起来偏高"是运维人员的印象，
+      而不是故障本身。在这里得出内存压力结论的诊断，
+      会让人去给一个真正问题在磁盘上的实例调大 maxmemory。
+
+symptom:
+  en: "writes are rejected with MISCONF after the last RDB save failed, and memory looks high"
+  zh: "上次 RDB 保存失败（磁盘写入报错）后写入被 MISCONF 拒绝，同时内存看起来偏高"
+
+telemetry:
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_rdb_last_bgsave_status: [1, 0, 0]
+    redis_aof_last_write_status: [1, 1, 1]
+    redis_rdb_changes_since_last_save: [12000, 26000, 41000]
+    redis_memory_used_bytes: [420, 430, 440]
+    redis_memory_max_bytes: [1000, 1000, 1000]
+    redis_memory_used_rss_bytes: [500, 510, 520]
+    redis_evicted_keys_total: [0, 0, 0]
+    redis_mem_fragmentation_ratio: [1.15, 1.16, 1.18]
+    # The stub serves the value of the whole expression, and this key is the
+    # longest match inside the hit-ratio expression, so the value is the ratio.
+    redis_keyspace_misses_total: [0.97, 0.97, 0.96]
+  logs:
+    - "MISCONF Errors writing to the AOF file: No space left on device"
+    - "Background saving error"
+    - "MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk."
+
+expect:
+  failure_modes: [persistence-failure]
+  not_failure_modes: [memory-pressure, eviction-storm, fragmentation, instance-down]

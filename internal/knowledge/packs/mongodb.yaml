@@ -1,0 +1,654 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: mongodb
+  name: mongodb-core
+  version: 1.0.0
+  versionRange: ">=4.0"
+
+# Signals use percona/mongodb_exporter metric names. {{.selector}} is replaced
+# with the target's label selector at run time.
+signals:
+  - id: up
+    promql: 'mongodb_up{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when the exporter can reach the mongod instance, 0 when it cannot."
+      zh: "exporter 能连上该 mongod 实例时为 1，连不上为 0。"
+  - id: repl_lag
+    promql: 'max(mongodb_mongod_replset_member_replication_lag{{.selector}})'
+    unit: seconds
+    description:
+      en: "Seconds a secondary is behind the primary. This is exactly the data a failover would lose."
+      zh: "从节点落后主节点的秒数。这正好等于一次故障切换会丢失的数据量。"
+  - id: repl_member_health
+    promql: 'min(mongodb_mongod_replset_member_health{{.selector}})'
+    unit: bool
+    description:
+      en: "0 when any replica-set member is unreachable from the primary's view."
+      zh: "当从主节点视角看有任何副本集成员不可达时为 0。"
+  - id: repl_state
+    promql: 'mongodb_mongod_replset_my_state{{.selector}}'
+    unit: state
+    description:
+      en: "Replica-set state of this member: 1 primary, 2 secondary, anything else is a transition or a fault."
+      zh: "本成员的副本集状态：1 为主、2 为从，其他值意味着正在切换或出现故障。"
+  - id: election_count
+    promql: 'increase(mongodb_mongod_replset_election_count{{.selector}}[1h])'
+    unit: elections
+    description:
+      en: "Elections in the last hour. Repeated elections mean the set cannot settle on a primary."
+      zh: "过去一小时内的选举次数。反复选举意味着副本集无法稳定选出主节点。"
+  - id: connections_current
+    promql: 'mongodb_ss_connections{{.selector}}'
+    unit: connections
+    description:
+      en: "Currently open connections."
+      zh: "当前打开的连接数。"
+  - id: connections_available
+    promql: 'mongodb_ss_connections_available{{.selector}}'
+    unit: connections
+    description:
+      en: "Connection slots still free. Approaching zero means new clients will be refused."
+      zh: "仍然空闲的连接槽位。接近 0 意味着新客户端将被拒绝。"
+  - id: op_latency_read
+    promql: 'rate(mongodb_ss_opLatencies_latency{{.selector}}[5m]) / clamp_min(rate(mongodb_ss_opLatencies_ops{{.selector}}[5m]), 1)'
+    unit: microseconds
+    description:
+      en: "Mean operation latency, derived from the cumulative latency and operation counters."
+      zh: "平均操作时延，由累计时延与操作计数推导得出。"
+  - id: queued_readers
+    promql: 'mongodb_ss_globalLock_currentQueue{{.selector}}'
+    unit: operations
+    description:
+      en: "Operations waiting on the global lock. A sustained queue means contention, not load."
+      zh: "在全局锁上等待的操作数。持续存在的队列意味着锁竞争，而不是负载高。"
+  - id: scan_ratio
+    promql: 'rate(mongodb_ss_metrics_queryExecutor_scanned{{.selector}}[5m]) / clamp_min(rate(mongodb_ss_metrics_document_returned{{.selector}}[5m]), 1)'
+    unit: ratio
+    description:
+      en: "Documents scanned per document returned. A high ratio is the signature of a missing index."
+      zh: "每返回一个文档所扫描的文档数。该比值偏高是缺失索引的典型特征。"
+  - id: cache_dirty_ratio
+    promql: 'mongodb_ss_wt_cache_tracked_dirty_bytes_in_the_cache{{.selector}} / clamp_min(mongodb_ss_wt_cache_maximum_bytes_configured{{.selector}}, 1)'
+    unit: ratio
+    description:
+      en: "Fraction of the WiredTiger cache holding dirty pages. Above 20% eviction stalls begin."
+      zh: "WiredTiger 缓存中脏页占比。超过 20% 时开始出现驱逐停顿。"
+  - id: cache_used_ratio
+    promql: 'mongodb_ss_wt_cache_bytes_currently_in_the_cache{{.selector}} / clamp_min(mongodb_ss_wt_cache_maximum_bytes_configured{{.selector}}, 1)'
+    unit: ratio
+    description:
+      en: "Fraction of the WiredTiger cache in use. Sustained pressure pushes reads to disk."
+      zh: "WiredTiger 缓存使用占比。持续的压力会把读操作压到磁盘上。"
+  - id: oplog_window
+    promql: 'mongodb_mongod_replset_oplog_head_timestamp{{.selector}} - mongodb_mongod_replset_oplog_tail_timestamp{{.selector}}'
+    unit: seconds
+    description:
+      en: "How far back the oplog reaches. A secondary lagging beyond this window can no longer catch up."
+      zh: "oplog 能够回溯的时间跨度。从节点滞后一旦超出该窗口，就再也无法追上。"
+  - id: disk_used_ratio
+    promql: 'max(1 - (node_filesystem_avail_bytes{mountpoint="/data"} / clamp_min(node_filesystem_size_bytes{mountpoint="/data"}, 1)))'
+    unit: ratio
+    description:
+      en: "Data-volume utilisation. MongoDB refuses writes well before the volume is completely full."
+      zh: "数据盘使用率。在磁盘完全写满之前，MongoDB 就会开始拒绝写入。"
+  - id: asserts_rate
+    promql: 'rate(mongodb_ss_asserts{{.selector}}[5m])'
+    unit: asserts/s
+    description:
+      en: "Server assertion rate. A non-zero regular rate usually indicates client errors, not corruption."
+      zh: "服务端断言速率。持续不为零通常意味着客户端错误，而不是数据损坏。"
+  - id: ttl_deleted
+    promql: 'rate(mongodb_ss_metrics_ttl_deletedDocuments{{.selector}}[5m])'
+    unit: docs/s
+    description:
+      en: "Documents removed per second by TTL indexes."
+      zh: "TTL 索引每秒删除的文档数。"
+
+logPatterns:
+  - id: slow_query
+    regex: 'Slow query|COMMAND.*[0-9]{4,}ms'
+    severity: major
+    meaning:
+      en: "An operation exceeded the slow-operation threshold. The log line names the collection and the plan."
+      zh: "某个操作超过了慢操作阈值。日志行中包含集合名与执行计划。"
+  - id: collscan
+    regex: '"planSummary":"COLLSCAN"|planSummary: COLLSCAN'
+    severity: major
+    meaning:
+      en: "A query scanned an entire collection. At scale this is almost always a missing index."
+      zh: "某次查询做了全集合扫描。在规模上这几乎总是缺失索引所致。"
+  - id: election_event
+    regex: '(Starting an election|transition to PRIMARY|Stepping down)'
+    severity: critical
+    meaning:
+      en: "The replica set changed primary. In-flight writes to the old primary may have been rolled back."
+      zh: "副本集切换了主节点。发往旧主节点的在途写入可能已被回滚。"
+  - id: rollback
+    regex: 'rollback|Rollback complete'
+    severity: critical
+    meaning:
+      en: "A former primary discarded writes the new primary never received. This is data loss, already committed to."
+      zh: "前任主节点丢弃了新主节点从未收到的写入。这就是数据丢失，且已成事实。"
+  - id: connection_refused
+    regex: '(connection refused|too many open connections|couldn.t accept connection)'
+    severity: critical
+    meaning:
+      en: "The connection ceiling was reached; clients are being refused."
+      zh: "已达连接数上限；客户端正在被拒绝。"
+  - id: wt_cache_stuck
+    regex: '(WiredTiger.*cache eviction|eviction server slept)'
+    severity: major
+    meaning:
+      en: "Cache eviction could not keep up, so operations were stalled waiting for space."
+      zh: "缓存驱逐跟不上，操作因等待空间而被阻塞。"
+  - id: no_space
+    regex: '(No space left on device|Insufficient free space)'
+    severity: critical
+    meaning:
+      en: "The data volume is full. MongoDB will refuse writes rather than corrupt the files."
+      zh: "数据盘已满。MongoDB 会拒绝写入而不是损坏文件。"
+  - id: write_concern_timeout
+    regex: '(waiting for replication timed out|wtimeout)'
+    severity: major
+    meaning:
+      en: "A write could not reach enough members within its write-concern timeout, so the client saw an error."
+      zh: "某次写入未能在写关注超时内到达足够多的成员，客户端因此收到错误。"
+  - id: index_build
+    regex: 'Index build.*(started|failed|aborted)'
+    severity: major
+    meaning:
+      en: "An index build is running or failed. Builds consume cache and can block on the collection."
+      zh: "索引构建正在进行或已失败。构建会消耗缓存，并可能阻塞在集合上。"
+  - id: restart_marker
+    regex: 'waiting for connections on port'
+    severity: info
+    meaning:
+      en: "mongod started. Seeing this inside the incident window means the process restarted."
+      zh: "mongod 已启动。若这行出现在故障时间窗内，说明进程发生过重启。"
+
+failureModes:
+  - id: replication-lag
+    severity: critical
+    title:
+      en: "Secondary falling behind the primary"
+      zh: "从节点落后于主节点"
+    explanation:
+      en: "A secondary is applying the oplog more slowly than the primary is writing it. Reads from that secondary are stale, and a failover now would lose the un-replicated writes. If the lag exceeds the oplog window the secondary cannot catch up at all and needs a full resync."
+      zh: "从节点应用 oplog 的速度慢于主节点写入的速度。此时该从节点上的读是陈旧的，现在发生故障切换会丢失尚未复制的写入。一旦滞后超过 oplog 窗口，从节点将完全无法追上，必须做全量重同步。"
+    symptoms: ["lag", "replication", "stale read", "secondary", "滞后", "复制"]
+    indicators: ["repl_lag rising", "repl_lag approaching oplog_window", "repl_member_health"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare replication lag against the oplog window: once lag exceeds it, only a full resync recovers the member."
+          zh: "把复制滞后与 oplog 窗口对比：一旦滞后超过窗口，只有全量重同步才能恢复该成员。"
+        rationale:
+          en: "The two numbers together decide whether this is a delay or an outage for that member."
+          zh: "这两个数字合在一起，决定了这对该成员而言是延迟还是故障。"
+      - risk: low
+        statement:
+          en: "Check whether the lagging secondary is doing an index build or a backup; both compete with oplog application."
+          zh: "检查滞后的从节点是否正在构建索引或做备份；两者都会与 oplog 应用争抢资源。"
+      - risk: high
+        statement:
+          en: "Do not fail over to a lagging secondary: the lag is exactly the volume of writes that would be lost."
+          zh: "不要切换到滞后的从节点：滞后量正好等于会丢失的写入量。"
+
+  - id: primary-election
+    severity: critical
+    title:
+      en: "Repeated primary elections"
+      zh: "主节点反复选举"
+    explanation:
+      en: "The replica set keeps changing primary. Every election is a brief write outage, and writes acknowledged by a primary that then steps down can be rolled back. Frequent elections usually mean network instability or an overloaded primary missing heartbeats, not a MongoDB defect."
+      zh: "副本集不断更换主节点。每次选举都是一次短暂的写入中断；而被某个随后降级的主节点确认过的写入，可能会被回滚。频繁选举通常意味着网络不稳定或主节点过载导致心跳丢失，而不是 MongoDB 本身的缺陷。"
+    symptoms: ["election", "failover", "primary", "rollback", "选举", "切换"]
+    indicators: ["election_count above zero", "repl_state changing", "election_event in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Look for rollback entries in the log: they name writes that were acknowledged and then discarded."
+          zh: "在日志中查找 rollback 记录：它们指明了哪些写入已被确认随后又被丢弃。"
+      - risk: low
+        statement:
+          en: "Check heartbeat network latency between members before suspecting MongoDB itself."
+          zh: "在怀疑 MongoDB 本身之前，先检查成员之间的心跳网络时延。"
+
+  - id: connection-saturation
+    severity: critical
+    title:
+      en: "Connection ceiling reached"
+      zh: "连接数达到上限"
+    explanation:
+      en: "Available connection slots are approaching zero and new clients are being refused. This is nearly always a client-side pooling problem: an application opening a connection per request rather than reusing a pool."
+      zh: "可用连接槽位接近 0，新客户端正在被拒绝。这几乎总是客户端连接池问题：某个应用为每个请求新建连接，而不是复用连接池。"
+    symptoms: ["connection", "refused", "timeout", "pool", "连接", "拒绝"]
+    indicators: ["connections_available approaching zero", "connections_current rising", "connection_refused in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Use db.currentOp() to see which application holds the most connections before raising any limit."
+          zh: "在提高任何上限之前，先用 db.currentOp() 查看哪个应用占用了最多连接。"
+      - risk: medium
+        statement:
+          en: "Raising maxIncomingConnections also raises memory per connection; verify the host has headroom first."
+          zh: "提高 maxIncomingConnections 会同时提高每连接的内存开销；请先确认宿主机有余量。"
+
+  - id: slow-queries
+    severity: major
+    title:
+      en: "Slow queries and missing indexes"
+      zh: "慢查询与缺失索引"
+    explanation:
+      en: "Queries are scanning far more documents than they return. Every collection scan competes for the WiredTiger cache, so one unindexed query degrades every other operation on the instance, not only itself."
+      zh: "查询扫描的文档数远多于返回的文档数。每一次集合扫描都会争抢 WiredTiger 缓存，因此一条没有索引的查询会拖慢该实例上的所有其他操作，而不只是它自己。"
+    symptoms: ["slow", "latency", "timeout", "query", "慢", "时延"]
+    indicators: ["scan_ratio high", "collscan in logs", "slow_query in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read the slow-query log entries: each names the collection and the plan summary that produced it."
+          zh: "阅读慢查询日志条目：每条都写明了集合名与产生它的执行计划摘要。"
+      - risk: low
+        statement:
+          en: "A scanned-to-returned ratio well above 1 identifies the query that needs an index, without guessing."
+          zh: "扫描/返回比明显大于 1，可以在不靠猜的情况下直接定位需要建索引的查询。"
+      - risk: medium
+        statement:
+          en: "Build the index on a secondary first if the collection is large; a foreground build blocks the collection."
+          zh: "若集合很大，先在从节点上建索引；前台构建会阻塞整个集合。"
+
+  - id: lock-contention
+    severity: major
+    title:
+      en: "Operations queuing on the global lock"
+      zh: "操作在全局锁上排队"
+    explanation:
+      en: "Operations are waiting for the global lock rather than executing. A queue that persists while throughput stays flat means contention, and adding capacity will not help until the contending operation is found."
+      zh: "操作在等待全局锁而不是在执行。当吞吐量持平而队列持续存在时，说明是锁竞争 —— 在找出竞争源之前，扩容并不会有帮助。"
+    symptoms: ["lock", "queue", "latency", "stall", "锁", "排队"]
+    indicators: ["queued_readers sustained", "op_latency_read rising", "wt_cache_stuck in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check whether the queue coincides with an index build or a large deletion, both of which hold locks."
+          zh: "检查排队是否与索引构建或大批量删除同时发生，二者都会持有锁。"
+
+  - id: storage-pressure
+    severity: critical
+    title:
+      en: "Cache or disk pressure"
+      zh: "缓存或磁盘压力"
+    explanation:
+      en: "The WiredTiger cache is full of dirty pages, or the data volume is running out of space. Both stall writes: the first because eviction cannot keep up, the second because MongoDB refuses writes rather than corrupt its files."
+      zh: "WiredTiger 缓存被脏页占满，或数据盘空间即将耗尽。两者都会阻塞写入：前者是因为驱逐跟不上，后者是因为 MongoDB 宁可拒绝写入也不会损坏文件。"
+    symptoms: ["disk", "cache", "write", "stall", "space", "磁盘", "缓存"]
+    indicators: ["cache_dirty_ratio above 0.2", "cache_used_ratio high", "disk_used_ratio high", "no_space in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Distinguish the two: a full disk needs space, a dirty cache needs either more cache or fewer concurrent writes."
+          zh: "先区分两者：磁盘满需要的是空间，脏缓存需要的是更大缓存或更少并发写入。"
+      - risk: medium
+        statement:
+          en: "Raising the WiredTiger cache size takes memory from the filesystem cache; measure both before and after."
+          zh: "调大 WiredTiger 缓存会挤占文件系统缓存的内存；调整前后都要做测量。"
+
+  - id: write-concern-stall
+    severity: critical
+    title:
+      en: "Writes timing out on write concern"
+      zh: "写入因写关注而超时"
+    explanation:
+      en: "Writes using w:majority cannot reach enough members within their timeout. The write may still be applied later, so the client seeing an error does not mean the write was rejected — which makes naive client-side retries a source of duplicates."
+      zh: "使用 w:majority 的写入无法在超时内到达足够多的成员。该写入之后仍可能被应用，因此客户端收到错误并不代表写入被拒绝 —— 这也让客户端的简单重试成为重复数据的来源。"
+    symptoms: ["write", "timeout", "wtimeout", "majority", "写入", "超时"]
+    indicators: ["write_concern_timeout in logs", "repl_lag rising", "repl_member_health"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check member health first: w:majority cannot be satisfied while a member is down, whatever the timeout."
+          zh: "先检查成员健康状态：只要有成员不可用，无论超时设成多少，w:majority 都无法满足。"
+      - risk: high
+        statement:
+          en: "Lowering write concern restores throughput by weakening the durability guarantee; treat it as an emergency measure and record that it was done."
+          zh: "降低写关注会以削弱持久性保证为代价恢复吞吐；只能作为紧急手段，并且要记录下这次调整。"
+
+playbooks:
+  - id: mongodb.availability
+    title:
+      en: "Availability and replica-set state"
+      zh: "可用性与副本集状态"
+    description:
+      en: "Runs on every MongoDB diagnosis: is the instance up, is the set healthy, and did the primary change?"
+      zh: "每次 MongoDB 诊断都会运行：实例是否在线、副本集是否健康、主节点是否发生过变更？"
+    steps:
+      - id: collect-up
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:up}}" }
+          as: up
+      - id: collect-health
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:repl_member_health}}" }
+          as: health
+      - id: collect-elections
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:election_count}}" }
+          as: elections
+      - id: eval-down
+        evaluate: "up.empty or up.latest < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The mongod instance is not reachable by the exporter during the window."
+              zh: "在该时间窗内，exporter 无法连上该 mongod 实例。"
+            detail:
+              en: "Everything downstream of this is unreliable until it is resolved."
+              zh: "在此问题解决前，其下游的一切判断都不可靠。"
+        onFalse:
+          pass:
+            en: "The instance was reachable throughout the window."
+            zh: "在整个时间窗内实例保持可达。"
+      - id: eval-member-down
+        evaluate: "not health.empty and health.latestMin < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "At least one replica-set member is unreachable from the primary's view."
+              zh: "从主节点视角看，至少有一个副本集成员不可达。"
+            detail:
+              en: "Majority write concern cannot be satisfied while a member is missing, whatever the timeout."
+              zh: "只要有成员缺失，无论超时设成多少，majority 写关注都无法满足。"
+        onFalse:
+          pass:
+            en: "Every replica-set member reported healthy."
+            zh: "所有副本集成员均报告健康。"
+      - id: eval-elections
+        evaluate: "not elections.empty and elections.latest > 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "The replica set held more than one election in the last hour."
+              zh: "副本集在过去一小时内发生了不止一次选举。"
+            detail:
+              en: "Each election is a brief write outage, and writes acknowledged by a primary that then stepped down can be rolled back."
+              zh: "每次选举都是一次短暂的写入中断；被随后降级的主节点确认过的写入可能被回滚。"
+      - id: conclude-down
+        conclude: { failureMode: primary-election, when: "not elections.empty and elections.latest > 1" }
+
+  - id: mongodb.replication
+    title:
+      en: "Replication health"
+      zh: "复制健康度"
+    matches: ["replication", "lag", "secondary", "stale", "failover", "election", "复制", "滞后", "从节点", "切换"]
+    description:
+      en: "Checks how far behind the secondaries are, and whether they can still catch up."
+      zh: "检查从节点落后多少，以及它们是否还追得上。"
+    steps:
+      - id: collect-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:repl_lag}}" }
+          as: lag
+      - id: collect-oplog
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:oplog_window}}" }
+          as: oplog
+      - id: eval-lag
+        evaluate: "not lag.empty and lag.max > 60"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "A secondary fell more than 60 seconds behind the primary."
+              zh: "有从节点落后主节点超过 60 秒。"
+            detail:
+              en: "Reads from that secondary are stale by at least this much, and a failover would lose the same amount of writes."
+              zh: "该从节点上的读至少陈旧这么多，而一次故障切换会丢失同等数量的写入。"
+        onFalse:
+          pass:
+            en: "Replication lag stayed within a minute."
+            zh: "复制滞后始终在一分钟以内。"
+      - id: eval-oplog-exhausted
+        evaluate: "not lag.empty and not oplog.empty and oplog.latest > 0 and lag.max > oplog.latest * 0.8"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Replication lag is approaching the oplog window."
+              zh: "复制滞后正在逼近 oplog 窗口。"
+            detail:
+              en: "Once lag exceeds the window the secondary cannot catch up at all and needs a full resync."
+              zh: "一旦滞后超过该窗口，从节点将完全无法追上，必须做全量重同步。"
+      - id: conclude
+        conclude: { failureMode: replication-lag, when: "not lag.empty and lag.max > 60" }
+
+  - id: mongodb.query-performance
+    title:
+      en: "Query performance and locking"
+      zh: "查询性能与锁"
+    matches: ["slow", "latency", "timeout", "query", "index", "lock", "慢", "时延", "查询", "索引", "锁"]
+    description:
+      en: "Separates slowness caused by unindexed queries from slowness caused by lock contention."
+      zh: "把由无索引查询造成的变慢，与由锁竞争造成的变慢区分开。"
+    steps:
+      - id: collect-scan
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:scan_ratio}}" }
+          as: scan
+      - id: collect-queue
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:queued_readers}}" }
+          as: queue
+      - id: collect-latency
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:op_latency_read}}" }
+          as: latency
+      - id: eval-scan
+        evaluate: "not scan.empty and scan.avg > 100"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Queries are scanning over 100 documents for each one returned."
+              zh: "查询每返回一个文档，就要扫描超过 100 个文档。"
+            detail:
+              en: "This is the signature of a missing index, and every scan competes for the cache that other operations need."
+              zh: "这是缺失索引的典型特征，而每次扫描都会与其他操作争抢它们所需的缓存。"
+        onFalse:
+          pass:
+            en: "The scanned-to-returned ratio is within normal bounds."
+            zh: "扫描/返回比处于正常范围。"
+      - id: eval-queue
+        evaluate: "not queue.empty and queue.avg > 5"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Operations are persistently queued on the global lock."
+              zh: "有操作持续在全局锁上排队。"
+            detail:
+              en: "A queue that persists while throughput stays flat is contention; capacity will not help until the contending operation is found."
+              zh: "吞吐持平而队列持续存在，说明是锁竞争；在找出竞争源之前扩容不会有帮助。"
+        onFalse:
+          pass:
+            en: "No sustained lock queue."
+            zh: "不存在持续的锁排队。"
+      - id: conclude-scan
+        conclude: { failureMode: slow-queries, when: "not scan.empty and scan.avg > 100" }
+      - id: conclude-lock
+        conclude: { failureMode: lock-contention, when: "not queue.empty and queue.avg > 5" }
+
+  - id: mongodb.capacity
+    title:
+      en: "Connections, cache and disk"
+      zh: "连接、缓存与磁盘"
+    matches: ["connection", "refused", "disk", "space", "cache", "memory", "write", "连接", "磁盘", "缓存", "写入"]
+    description:
+      en: "Checks the three resources whose exhaustion stalls writes."
+      zh: "检查三种一旦耗尽就会阻塞写入的资源。"
+    steps:
+      - id: collect-conn-avail
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:connections_available}}" }
+          as: avail
+      - id: collect-dirty
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:cache_dirty_ratio}}" }
+          as: dirty
+      - id: collect-disk
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:disk_used_ratio}}" }
+          as: disk
+      - id: eval-connections
+        evaluate: "not avail.empty and avail.min < 100"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "Available connection slots dropped below 100."
+              zh: "可用连接槽位降到 100 以下。"
+            detail:
+              en: "New clients will be refused once this reaches zero; this is nearly always client-side pooling."
+              zh: "一旦归零，新客户端将被拒绝；原因几乎总是客户端连接池。"
+        onFalse:
+          pass:
+            en: "Connection slots remained plentiful."
+            zh: "连接槽位始终充足。"
+      - id: eval-dirty
+        evaluate: "not dirty.empty and dirty.max > 0.2"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "More than 20% of the WiredTiger cache held dirty pages."
+              zh: "WiredTiger 缓存中脏页占比超过 20%。"
+            detail:
+              en: "Above this threshold eviction cannot keep up and write operations begin to stall waiting for space."
+              zh: "超过该阈值后驱逐跟不上，写操作会开始因等待空间而停顿。"
+        onFalse:
+          pass:
+            en: "Cache dirty ratio is within normal bounds."
+            zh: "缓存脏页比例处于正常范围。"
+      - id: eval-disk
+        evaluate: "not disk.empty and disk.latest > 0.9"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The data volume is more than 90% full."
+              zh: "数据盘使用率超过 90%。"
+            detail:
+              en: "MongoDB refuses writes well before the volume is completely full, rather than corrupt its files."
+              zh: "在磁盘完全写满之前 MongoDB 就会拒绝写入，以免损坏文件。"
+      - id: conclude-conn
+        conclude: { failureMode: connection-saturation, when: "not avail.empty and avail.min < 100" }
+      - id: conclude-storage
+        conclude:
+          failureMode: storage-pressure
+          when: "(not dirty.empty and dirty.max > 0.2) or (not disk.empty and disk.latest > 0.9)"
+
+  - id: mongodb.write-concern
+    title:
+      en: "Write-concern stalls"
+      zh: "写关注卡顿"
+    matches: ["write", "wtimeout", "majority", "write concern", "timeout", "写入", "超时", "写关注"]
+    description:
+      en: "Checks whether writes are failing to reach a majority of members."
+      zh: "检查写入是否无法到达多数成员。"
+    steps:
+      - id: collect-health
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:repl_member_health}}" }
+          as: health
+      - id: collect-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:repl_lag}}" }
+          as: lag
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 200 }
+          as: logs
+      - id: eval-timeouts
+        evaluate: "not logs.empty and countMatching(logs.lines, 'wtimeout|waiting for replication timed out') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Writes timed out waiting for replication within the window."
+              zh: "时间窗内出现写入等待复制超时。"
+            detail:
+              en: "A timed-out write may still be applied later, so a client that retried may have created duplicates."
+              zh: "超时的写入之后仍可能被应用，因此发生重试的客户端可能已经造成重复数据。"
+        onFalse:
+          pass:
+            en: "No write-concern timeouts appear in the log."
+            zh: "日志中没有出现写关注超时。"
+      - id: conclude
+        conclude:
+          failureMode: write-concern-stall
+          when: "not logs.empty and countMatching(logs.lines, 'wtimeout|waiting for replication timed out') > 0"
+
+inspect:
+  - id: server-status
+    binary: mongosh
+    args: ["--host", "{{.host}}", "--port", "{{.port}}", "--eval", "db.serverStatus()"]
+    description:
+      en: "Full server status: connections, opcounters, locks, WiredTiger cache and replication in one read."
+      zh: "完整服务器状态：一次读取即可拿到连接、操作计数、锁、WiredTiger 缓存与复制信息。"
+  - id: replset-status
+    binary: mongosh
+    args: ["--host", "{{.host}}", "--port", "{{.port}}", "--eval", "rs.status()"]
+    description:
+      en: "Replica-set membership, each member's state, health and optime."
+      zh: "副本集成员构成，以及每个成员的状态、健康度与 optime。"
+  - id: current-op
+    binary: mongosh
+    args: ["--host", "{{.host}}", "--port", "{{.port}}", "--eval", "db.currentOp()"]
+    description:
+      en: "Operations running right now, with their duration and the locks they hold."
+      zh: "当前正在执行的操作，及其耗时与持有的锁。"
+  - id: db-stats
+    binary: mongosh
+    args: ["--host", "{{.host}}", "--port", "{{.port}}", "--eval", "db.stats()"]
+    description:
+      en: "Database size, index size and object counts."
+      zh: "数据库大小、索引大小与对象数量。"
+  - id: host-info
+    binary: mongosh
+    args: ["--host", "{{.host}}", "--port", "{{.port}}", "--eval", "db.hostInfo()"]
+    description:
+      en: "Host CPU, memory and operating system as mongod sees them."
+      zh: "从 mongod 视角看到的宿主机 CPU、内存与操作系统信息。"
+
+source:
+  repos: ["https://github.com/mongodb/mongo"]

@@ -1,0 +1,57 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: redis-maxmemory-eviction
+  middleware: redis
+  version: "7.2.4"
+  title:
+    en: "Redis at maxmemory, evicting, refusing writes"
+    zh: "Redis 触及 maxmemory，正在驱逐并拒绝写入"
+  description:
+    en: >-
+      Used memory sits at 99% of the configured maxmemory, eviction is running,
+      and the log carries OOM refusals. The answer is memory pressure. The two
+      ruled-out modes are the plausible wrong answers: replication is healthy
+      and persistence never failed, so a diagnosis reaching either has been
+      misled by the symptom rather than the evidence.
+    zh: >-
+      已用内存达到配置 maxmemory 的 99%，驱逐正在发生，日志中带有 OOM 拒绝写入。
+      正确答案是内存压力。被排除的两个模式是看似合理的错误答案：
+      复制健康、持久化从未失败，因此得出其中任何一个的诊断，
+      都是被症状而不是被证据带偏了。
+
+symptom:
+  en: "p99 latency spike with evictions and OOM errors"
+  zh: "p99 延迟毛刺，伴随驱逐与 OOM 报错"
+
+telemetry:
+  metrics:
+    redis_up: [1, 1, 1]
+    redis_memory_used_bytes: [940, 970, 990]
+    redis_memory_max_bytes: [1000, 1000, 1000]
+    redis_memory_used_rss_bytes: [1050, 1080, 1100]
+    redis_evicted_keys_total: [0, 6, 14]
+    redis_expired_keys_total: [2, 2, 3]
+    redis_connected_clients: [40, 42, 44]
+    redis_blocked_clients: [0, 0, 0]
+    redis_config_maxclients: [10000, 10000, 10000]
+    redis_rejected_connections_total: [0, 0, 0]
+    redis_keyspace_hits_total: [900, 940, 950]
+    redis_keyspace_misses_total: [10, 60, 400]
+    redis_rdb_last_bgsave_status: [1, 1, 1]
+    redis_aof_last_write_status: [1, 1, 1]
+    redis_master_link_up: [1, 1, 1]
+    redis_connected_slaves: [1, 1, 1]
+    redis_master_repl_offset: [1000, 1100, 1200]
+    redis_latest_fork_usec: [900, 950, 1000]
+    redis_cpu_sys_seconds_total: [0.1, 0.15, 0.2]
+    redis_cpu_user_seconds_total: [0.1, 0.15, 0.2]
+    redis_cluster_enabled: [0, 0, 0]
+  logs:
+    - "OOM command not allowed when used memory > 'maxmemory'."
+    - "Evicting key to free memory"
+    - "OOM command not allowed when used memory > 'maxmemory'."
+
+expect:
+  failure_modes: [memory-pressure]
+  not_failure_modes: [replication-broken, persistence-failure]

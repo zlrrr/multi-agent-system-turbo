@@ -1,0 +1,41 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: mongodb-slow-queries
+  middleware: mongodb
+  version: "7.0.5"
+  title:
+    en: "Collection scans, not lock contention"
+    zh: "是全集合扫描，而不是锁竞争"
+  description:
+    en: >-
+      The scan-to-return ratio climbed from 120 to 780 documents examined per
+      document returned, which is a query planner reading the whole collection.
+      The global lock queue never rose above two, so nothing is waiting on a
+      lock. The two look identical in application latency and have opposite
+      remedies: one wants an index, the other wants less concurrent writing.
+    zh: >-
+      "扫描数 / 返回数"之比从 120 升到 780，也就是执行计划在扫描整个集合。
+      全局锁队列始终不超过 2，说明没有任何操作在等锁。
+      这两者在应用侧时延上完全相同，处理方式却完全相反：
+      一个需要加索引，另一个需要减少并发写入。
+
+symptom:
+  en: "queries are slow and an index may be missing"
+  zh: "查询变慢，可能缺少索引"
+
+telemetry:
+  metrics:
+    mongodb_up: [1, 1, 1]
+    mongodb_mongod_replset_member_health: [1, 1, 1]
+    mongodb_mongod_replset_election_count: [0, 0, 0]
+    mongodb_ss_metrics_queryExecutor_scanned: [120, 340, 780]
+    mongodb_ss_globalLock_currentQueue: [1, 2, 2]
+    mongodb_ss_opLatencies_latency: [3, 9, 22]
+  logs:
+    - "{\"s\":\"I\",\"c\":\"COMMAND\",\"msg\":\"Slow query\",\"attr\":{\"durationMillis\":2240,\"planSummary\":\"COLLSCAN\"}}"
+    - "{\"s\":\"I\",\"c\":\"COMMAND\",\"msg\":\"Slow query\",\"attr\":{\"durationMillis\":3110,\"planSummary\":\"COLLSCAN\"}}"
+
+expect:
+  failure_modes: [slow-queries]
+  not_failure_modes: [lock-contention, primary-election]

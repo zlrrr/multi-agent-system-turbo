@@ -1,0 +1,46 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: kafka-consumer-lag-growth
+  middleware: kafka
+  version: "3.7.0"
+  title:
+    en: "Consumer group falling behind a steady produce rate"
+    zh: "生产速率稳定，消费组却持续落后"
+  description:
+    en: >-
+      Lag went from 1,200 to 26,000 while the produce rate held flat, so nothing
+      upstream changed: the consumers slowed down. Every broker-side reading is
+      clean — three brokers, one controller, no offline or under-replicated
+      partitions — which is what rules out the cluster explanations an operator
+      reaches for first when a topic appears to be "backing up".
+    zh: >-
+      生产速率保持平稳，积压却从 1200 增长到 26000，说明上游什么都没变：
+      是消费端变慢了。broker 侧的所有读数都干净 —— 3 个 broker、1 个 controller、
+      没有离线分区也没有副本不足 —— 这正是排除掉运维人员在"topic 堆积"时
+      最先想到的那些集群级解释的依据。
+
+symptom:
+  en: "consumer group lag keeps growing while the brokers look fine"
+  zh: "broker 看起来正常，消费组积压却持续增长"
+
+telemetry:
+  metrics:
+    kafka_brokers: [3, 3, 3]
+    kafka_controller_kafkacontroller_activecontrollercount: [1, 1, 1]
+    kafka_controller_kafkacontroller_offlinepartitionscount: [0, 0, 0]
+    kafka_topic_partition_under_replicated_partition: [0, 0, 0]
+    kafka_consumergroup_lag: [1200, 8400, 26000]
+    kafka_topic_partition_current_offset: [4200, 4300, 4250]
+  logs:
+    - "[GroupCoordinator 1] Member consumer-3 in group orders-consumers has failed, removing it from the group"
+    - "[GroupCoordinator 1] Stabilized group orders-consumers generation 47"
+    - "[Consumer clientId=consumer-1] Fetch position exceeds the committed offset by 26000 records"
+
+expect:
+  failure_modes: [consumer-lag-growth]
+  not_failure_modes:
+    - broker-loss
+    - offline-partitions
+    - under-replicated-partitions
+    - controller-instability

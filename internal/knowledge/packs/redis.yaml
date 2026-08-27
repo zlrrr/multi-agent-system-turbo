@@ -1,0 +1,950 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: redis
+  name: redis-core
+  version: 1.0.0
+  versionRange: ">=4.0"
+
+# Signals are the PromQL fragments this pack reasons over. They assume the
+# widely deployed oliver006/redis_exporter metric names. {{.selector}} is
+# replaced with the target's label selector at run time, so one pack serves any
+# number of deployments.
+signals:
+  - id: up
+    promql: 'redis_up{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when the exporter can reach the Redis instance, 0 when it cannot."
+      zh: "exporter 能连上该 Redis 实例时为 1，连不上为 0。"
+  - id: memory_used
+    promql: 'redis_memory_used_bytes{{.selector}}'
+    unit: bytes
+    description:
+      en: "Bytes Redis has allocated for the dataset and its overhead."
+      zh: "Redis 为数据集及其开销分配的字节数。"
+  - id: memory_max
+    promql: 'redis_memory_max_bytes{{.selector}}'
+    unit: bytes
+    description:
+      en: "Configured maxmemory. Zero means unlimited, which defers the problem to the host."
+      zh: "配置的 maxmemory。为 0 表示不限制，这只是把问题推给了宿主机。"
+  - id: memory_rss
+    promql: 'redis_memory_used_rss_bytes{{.selector}}'
+    unit: bytes
+    description:
+      en: "Resident set size as seen by the operating system."
+      zh: "操作系统视角下的常驻内存大小。"
+  - id: evicted_rate
+    promql: 'rate(redis_evicted_keys_total{{.selector}}[5m])'
+    unit: keys/s
+    description:
+      en: "Keys evicted per second because maxmemory was reached."
+      zh: "因达到 maxmemory 而每秒被驱逐的 key 数。"
+  - id: expired_rate
+    promql: 'rate(redis_expired_keys_total{{.selector}}[5m])'
+    unit: keys/s
+    description:
+      en: "Keys expiring per second through TTL. Distinguishes healthy turnover from eviction pressure."
+      zh: "每秒因 TTL 过期的 key 数。用于把正常的自然淘汰与驱逐压力区分开。"
+  - id: connected_clients
+    promql: 'redis_connected_clients{{.selector}}'
+    unit: connections
+    description:
+      en: "Currently connected clients."
+      zh: "当前连接的客户端数。"
+  - id: blocked_clients
+    promql: 'redis_blocked_clients{{.selector}}'
+    unit: connections
+    description:
+      en: "Clients blocked in BLPOP and similar. A rising count means consumers are starved."
+      zh: "阻塞在 BLPOP 等命令上的客户端数。持续上升说明消费方在挨饿。"
+  - id: max_clients
+    promql: 'redis_config_maxclients{{.selector}}'
+    unit: connections
+    description:
+      en: "Configured maxclients ceiling."
+      zh: "配置的 maxclients 上限。"
+  - id: rejected_rate
+    promql: 'rate(redis_rejected_connections_total{{.selector}}[5m])'
+    unit: connections/s
+    description:
+      en: "Connections refused per second because maxclients was reached."
+      zh: "因达到 maxclients 而每秒被拒绝的连接数。"
+  - id: ops_per_sec
+    promql: 'redis_instantaneous_ops_per_sec{{.selector}}'
+    unit: ops/s
+    description:
+      en: "Commands processed per second."
+      zh: "每秒处理的命令数。"
+  - id: cmd_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(redis_command_call_duration_seconds_bucket{{.selector}}[5m])) by (le, cmd))'
+    unit: seconds
+    description:
+      en: "99th-percentile command duration by command, when the exporter is built with latency histograms."
+      zh: "按命令统计的 P99 执行耗时（需 exporter 开启延迟直方图）。"
+  - id: hit_ratio
+    promql: 'rate(redis_keyspace_hits_total{{.selector}}[5m]) / clamp_min(rate(redis_keyspace_hits_total{{.selector}}[5m]) + rate(redis_keyspace_misses_total{{.selector}}[5m]), 1)'
+    unit: ratio
+    description:
+      en: "Keyspace hit ratio. A sudden collapse usually means eviction or a cold restart, not a client bug."
+      zh: "键空间命中率。突然塌陷通常意味着驱逐或冷启动，而不是客户端缺陷。"
+  - id: fragmentation
+    promql: 'redis_mem_fragmentation_ratio{{.selector}}'
+    unit: ratio
+    description:
+      en: "RSS divided by allocated memory. Above ~1.5 means real memory is being wasted; below 1 means swapping."
+      zh: "RSS 与已分配内存之比。高于约 1.5 说明真实内存被浪费；低于 1 说明正在换页。"
+  - id: fork_usec
+    promql: 'redis_latest_fork_usec{{.selector}}'
+    unit: microseconds
+    description:
+      en: "Duration of the most recent fork. Redis is blocked for this entire time."
+      zh: "最近一次 fork 的耗时。在这段时间内 Redis 是完全阻塞的。"
+  - id: rdb_last_status
+    promql: 'redis_rdb_last_bgsave_status{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when the last background save succeeded, 0 when it failed."
+      zh: "上次后台保存成功为 1，失败为 0。"
+  - id: aof_last_write_status
+    promql: 'redis_aof_last_write_status{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when the last AOF write succeeded, 0 when it failed."
+      zh: "上次 AOF 写入成功为 1，失败为 0。"
+  - id: rdb_changes_since_save
+    promql: 'redis_rdb_changes_since_last_save{{.selector}}'
+    unit: changes
+    description:
+      en: "Writes accumulated since the last successful save — the data at risk right now."
+      zh: "自上次成功保存以来累积的写入数 —— 即当前处于风险中的数据量。"
+  - id: master_link_up
+    promql: 'redis_master_link_up{{.selector}}'
+    unit: bool
+    description:
+      en: "On a replica, 1 when the link to the master is up."
+      zh: "在从节点上，与主节点链路正常时为 1。"
+  - id: connected_slaves
+    promql: 'redis_connected_slaves{{.selector}}'
+    unit: replicas
+    description:
+      en: "Replicas currently attached to this master."
+      zh: "当前挂在该主节点上的从节点数。"
+  - id: repl_offset_lag
+    promql: 'redis_master_repl_offset{{.selector}} - on(instance) redis_slave_repl_offset{{.selector}}'
+    unit: bytes
+    description:
+      en: "Replication byte lag between master and replica."
+      zh: "主从之间的复制字节滞后量。"
+  - id: cpu_seconds
+    promql: 'rate(redis_cpu_sys_seconds_total{{.selector}}[5m]) + rate(redis_cpu_user_seconds_total{{.selector}}[5m])'
+    unit: cores
+    description:
+      en: "CPU cores consumed. Redis command execution is single-threaded, so approaching 1.0 is saturation."
+      zh: "占用的 CPU 核数。Redis 命令执行是单线程的，因此接近 1.0 即为饱和。"
+  - id: keys_total
+    promql: 'sum(redis_db_keys{{.selector}})'
+    unit: keys
+    description:
+      en: "Total keys across all databases."
+      zh: "所有数据库中的 key 总数。"
+
+logPatterns:
+  - id: oom_command_not_allowed
+    regex: 'OOM command not allowed when used memory'
+    severity: critical
+    meaning:
+      en: "Redis is at maxmemory and is refusing writes. Clients are seeing errors right now."
+      zh: "Redis 已达 maxmemory 并开始拒绝写入。客户端此刻正在报错。"
+  - id: misconf_rdb
+    regex: 'MISCONF Redis is configured to save RDB snapshots'
+    severity: critical
+    meaning:
+      en: "Persistence is failing and Redis is refusing writes as a result. Almost always disk or permissions."
+      zh: "持久化失败，Redis 因此拒绝写入。原因几乎总是磁盘或权限问题。"
+  - id: bgsave_fork_failed
+    regex: "Can't save in background: fork: Cannot allocate memory"
+    severity: critical
+    meaning:
+      en: "The fork for a background save failed. Usually vm.overcommit_memory is 0 with insufficient free memory."
+      zh: "后台保存所需的 fork 失败。通常是 vm.overcommit_memory 为 0 且可用内存不足。"
+  - id: overcommit_warning
+    regex: 'overcommit_memory is set to 0'
+    severity: major
+    meaning:
+      en: "The kernel may refuse the fork that background saves and replication require."
+      zh: "内核可能拒绝后台保存与复制所需的 fork。"
+  - id: bgsave_error
+    regex: '(Background saving error|Failed opening the RDB|Write error saving DB on disk)'
+    severity: critical
+    meaning:
+      en: "A background save failed outright. Data since the last successful save is unprotected."
+      zh: "后台保存彻底失败。自上次成功保存以来的数据没有保护。"
+  - id: maxclients_reached
+    regex: '(max number of clients reached|Error registering fd event)'
+    severity: major
+    meaning:
+      en: "The connection ceiling has been hit; new clients are being refused."
+      zh: "已达连接数上限；新客户端正在被拒绝。"
+  - id: master_link_lost
+    regex: '(Connection with master lost|MASTER <-> REPLICA sync (started|error))'
+    severity: major
+    meaning:
+      en: "Replication was interrupted. A full resync forks the master and is expensive."
+      zh: "复制中断。全量重同步会 fork 主节点，代价很高。"
+  - id: full_resync
+    regex: 'Full resync from master'
+    severity: major
+    meaning:
+      en: "A full resynchronisation is running: the master forks, transfers the whole dataset, and latency suffers."
+      zh: "正在进行全量重同步：主节点 fork 并传输整个数据集，延迟会明显受影响。"
+  - id: slow_operation
+    regex: '(Slow .* took|slowlog)'
+    severity: minor
+    meaning:
+      en: "An individual operation blocked the event loop long enough to be logged."
+      zh: "某个操作阻塞事件循环的时间长到被记录了下来。"
+  - id: restart_marker
+    regex: 'Ready to accept connections'
+    severity: info
+    meaning:
+      en: "Redis started. Seeing this inside the incident window means the process restarted."
+      zh: "Redis 已启动。若这行出现在故障时间窗内，说明进程发生过重启。"
+  - id: cluster_state_fail
+    regex: '(Cluster state changed: fail|Failover auth denied)'
+    severity: critical
+    meaning:
+      en: "The cluster lost slot coverage or could not elect a master."
+      zh: "集群丢失了槽位覆盖，或无法完成主节点选举。"
+
+failureModes:
+  - id: memory-pressure
+    severity: critical
+    title:
+      en: "Memory pressure at or near maxmemory"
+      zh: "内存压力：已达到或接近 maxmemory"
+    explanation:
+      en: "Used memory has reached the configured ceiling. Depending on maxmemory-policy Redis either evicts keys — collapsing the hit ratio and pushing load onto the backing store — or refuses writes with an OOM error."
+      zh: "已用内存达到配置上限。取决于 maxmemory-policy，Redis 要么开始驱逐 key —— 命中率随之塌陷、负载被推给后端存储 —— 要么直接以 OOM 错误拒绝写入。"
+    symptoms: ["latency", "eviction", "oom", "write error", "memory"]
+    indicators: ["memory_used / memory_max > 0.9", "evicted_rate > 0", "OOM command not allowed in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Confirm the eviction policy with CONFIG GET maxmemory-policy; noeviction turns memory pressure into write failures."
+          zh: "用 CONFIG GET maxmemory-policy 确认驱逐策略；noeviction 会把内存压力直接变成写入失败。"
+        rationale:
+          en: "The policy determines whether clients see errors or silent data loss."
+          zh: "该策略决定了客户端看到的是报错还是静默的数据丢失。"
+      - risk: low
+        statement:
+          en: "Identify the largest keyspaces with MEMORY DOCTOR and the exporter's per-database key counts before changing any limit."
+          zh: "在调整任何限制之前，先用 MEMORY DOCTOR 与 exporter 的分库 key 数找出最大的键空间。"
+      - risk: medium
+        statement:
+          en: "Raise maxmemory only if the host has headroom; without it the kernel OOM killer replaces a degraded Redis with a dead one."
+          zh: "只有在宿主机有余量时才提高 maxmemory；否则内核 OOM killer 会把“降级的 Redis”变成“死掉的 Redis”。"
+      - risk: medium
+        statement:
+          en: "Add TTLs to keys that do not need to be permanent, so expiry does the work eviction is currently doing."
+          zh: "为不需要永久保存的 key 加上 TTL，让过期机制承担当前由驱逐承担的工作。"
+
+  - id: eviction-storm
+    severity: major
+    title:
+      en: "Sustained key eviction"
+      zh: "持续的 key 驱逐"
+    explanation:
+      en: "Redis is continuously evicting keys to stay under maxmemory. Every eviction is a future cache miss, so the backing database sees load it was not sized for."
+      zh: "Redis 为维持在 maxmemory 之下而持续驱逐 key。每一次驱逐都是未来的一次缓存未命中，后端数据库因此承受了它未被规划过的负载。"
+    symptoms: ["eviction", "cache miss", "hit ratio", "database load"]
+    indicators: ["evicted_rate sustained above 0", "hit_ratio falling"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare the eviction rate against the expiry rate: eviction is forced, expiry is intended."
+          zh: "把驱逐速率与过期速率放在一起比较：驱逐是被迫的，过期是设计好的。"
+      - risk: medium
+        statement:
+          en: "Either increase capacity or reduce the working set; an eviction storm is a sizing statement, not a bug."
+          zh: "要么扩容，要么缩小工作集；驱逐风暴说明的是容量规划问题，而不是缺陷。"
+
+  - id: connection-saturation
+    severity: critical
+    title:
+      en: "Connection ceiling reached"
+      zh: "连接数达到上限"
+    explanation:
+      en: "Connected clients are at or near maxclients and new connections are being refused. This is usually a client-side pooling problem rather than a Redis problem."
+      zh: "已连接客户端数达到或接近 maxclients，新连接正在被拒绝。这通常是客户端连接池的问题，而不是 Redis 的问题。"
+    symptoms: ["connection", "refused", "timeout", "max clients"]
+    indicators: ["connected_clients / max_clients > 0.9", "rejected_rate > 0"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Use CLIENT LIST to find which application is holding the most connections before raising any limit."
+          zh: "在提高任何上限之前，先用 CLIENT LIST 找出是哪个应用占用了最多连接。"
+      - risk: low
+        statement:
+          en: "Check for clients that open a connection per request instead of using a pool."
+          zh: "检查是否有客户端为每个请求新建连接，而不是使用连接池。"
+      - risk: medium
+        statement:
+          en: "Raising maxclients also raises file-descriptor and memory requirements; verify both before changing it."
+          zh: "提高 maxclients 会同时提高文件描述符与内存需求；修改前请先确认这两者。"
+
+  - id: slow-commands
+    severity: major
+    title:
+      en: "Slow commands blocking the event loop"
+      zh: "慢命令阻塞事件循环"
+    explanation:
+      en: "Redis executes commands on a single thread. One O(N) command over a large collection stalls every other client for its whole duration, which is why latency spikes are usually caused by one caller, not by load."
+      zh: "Redis 在单线程上执行命令。一条作用于大集合的 O(N) 命令会在其整个执行期间阻塞所有其他客户端 —— 这正是延迟毛刺通常源于某一个调用方而非整体负载的原因。"
+    symptoms: ["latency", "slow", "timeout", "p99", "spike"]
+    indicators: ["slowlog entries", "cpu_seconds near 1 core", "latency spikes uncorrelated with ops/s"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read SLOWLOG GET 25 and look for KEYS, SMEMBERS, HGETALL, LRANGE 0 -1 or a Lua script over a large collection."
+          zh: "查看 SLOWLOG GET 25，重点找 KEYS、SMEMBERS、HGETALL、LRANGE 0 -1，或作用于大集合的 Lua 脚本。"
+      - risk: low
+        statement:
+          en: "Replace KEYS with SCAN and unbounded range reads with paginated ones in the offending client."
+          zh: "在有问题的客户端中，用 SCAN 替换 KEYS，用分页读取替换无界范围读取。"
+      - risk: low
+        statement:
+          en: "LATENCY LATEST and LATENCY DOCTOR attribute the spike to a specific event class."
+          zh: "LATENCY LATEST 与 LATENCY DOCTOR 可以把延迟毛刺归因到具体的事件类别。"
+
+  - id: persistence-failure
+    severity: critical
+    title:
+      en: "Persistence is failing"
+      zh: "持久化失败"
+    explanation:
+      en: "A background save or AOF write failed. With stop-writes-on-bgsave-error enabled — the default — Redis refuses all writes until a save succeeds, so a disk problem presents as a total write outage."
+      zh: "后台保存或 AOF 写入失败。在 stop-writes-on-bgsave-error 开启（默认）的情况下，Redis 会拒绝所有写入直到某次保存成功 —— 于是一个磁盘问题表现为写入完全中断。"
+    symptoms: ["misconf", "write error", "persistence", "rdb", "aof", "disk"]
+    indicators: ["rdb_last_status == 0", "aof_last_write_status == 0", "MISCONF in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check free space and permissions on the Redis data directory; this is the cause in most cases."
+          zh: "检查 Redis 数据目录的剩余空间与权限；多数情况下原因就在这里。"
+      - risk: low
+        statement:
+          en: "If the fork failed, set vm.overcommit_memory to 1 on the host, which Redis documents as a requirement."
+          zh: "如果是 fork 失败，请在宿主机上将 vm.overcommit_memory 设为 1 —— Redis 文档明确要求这一点。"
+      - risk: high
+        statement:
+          en: "Disabling stop-writes-on-bgsave-error restores writes but silently removes the durability guarantee; treat it as an emergency measure only."
+          zh: "关闭 stop-writes-on-bgsave-error 可以恢复写入，但会静默地取消持久性保证；只能作为紧急手段。"
+
+  - id: fork-latency
+    severity: major
+    title:
+      en: "Long fork pauses"
+      zh: "fork 造成的长时间停顿"
+    explanation:
+      en: "Background saves and replica sync fork the process. Redis is blocked for the entire fork, and fork cost grows with dataset size and with transparent huge pages."
+      zh: "后台保存与从节点同步都需要 fork 进程。在整个 fork 期间 Redis 是阻塞的，而 fork 的代价随数据集大小以及透明大页（THP）而增长。"
+    symptoms: ["latency", "spike", "pause", "fork", "replication"]
+    indicators: ["fork_usec above 100000", "latency spikes coinciding with saves"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Disable transparent huge pages on the host; Redis warns about this at startup for good reason."
+          zh: "在宿主机上关闭透明大页；Redis 在启动时就为此发出警告是有原因的。"
+      - risk: medium
+        statement:
+          en: "Move scheduled saves away from peak traffic, or shard so no single instance holds a dataset this large."
+          zh: "把计划中的保存挪出流量高峰，或通过分片让单实例不再持有这么大的数据集。"
+
+  - id: replication-broken
+    severity: critical
+    title:
+      en: "Replication link down or lagging"
+      zh: "复制链路断开或滞后"
+    explanation:
+      en: "A replica has lost its link to the master or has fallen behind. Reads served from that replica are stale, and a failover now would lose the un-replicated writes."
+      zh: "从节点与主节点的链路断开或已明显落后。此时该从节点提供的读是陈旧的，而现在发生的故障切换会丢失尚未复制的写入。"
+    symptoms: ["replication", "replica", "sync", "lag", "stale", "failover"]
+    indicators: ["master_link_up == 0", "repl_offset_lag growing", "Full resync in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check network reachability and the replica's log for the reason the link dropped."
+          zh: "检查网络连通性，并在从节点日志中找出链路断开的原因。"
+      - risk: low
+        statement:
+          en: "Repeated full resyncs usually mean repl-backlog-size is too small for the write rate."
+          zh: "反复的全量重同步通常意味着 repl-backlog-size 相对写入速率过小。"
+      - risk: high
+        statement:
+          en: "Do not fail over to a lagging replica: the offset gap is the amount of data you would lose."
+          zh: "不要切换到滞后的从节点：偏移量差值就是你会丢失的数据量。"
+
+  - id: fragmentation
+    severity: major
+    title:
+      en: "Memory fragmentation or swapping"
+      zh: "内存碎片或换页"
+    explanation:
+      en: "A fragmentation ratio well above 1 means the allocator holds memory the dataset is not using. Below 1 means part of the dataset is on disk, and Redis latency becomes disk latency."
+      zh: "碎片率明显大于 1，说明分配器持有的内存并未被数据集使用。小于 1 则说明部分数据集已被换出到磁盘，此时 Redis 的延迟就等于磁盘延迟。"
+    symptoms: ["memory", "latency", "swap", "fragmentation", "rss"]
+    indicators: ["fragmentation > 1.5", "fragmentation < 1"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "A ratio below 1 means swapping: fix host memory before looking at Redis at all."
+          zh: "碎片率小于 1 意味着正在换页：先解决宿主机内存问题，再看 Redis。"
+      - risk: medium
+        statement:
+          en: "For a high ratio, activedefrag can reclaim memory at some CPU cost; measure before and after."
+          zh: "碎片率偏高时，activedefrag 可以在消耗一些 CPU 的前提下回收内存；请在开启前后都做测量。"
+
+  - id: cpu-saturation
+    severity: major
+    title:
+      en: "Single-threaded CPU saturation"
+      zh: "单线程 CPU 饱和"
+    explanation:
+      en: "Redis command execution is single-threaded, so a single core at 100% is a hard ceiling. Adding CPUs to the host does not help; the work has to be split or reduced."
+      zh: "Redis 命令执行是单线程的，因此单核跑满就是硬性天花板。给宿主机加 CPU 没有用；必须拆分或减少工作量。"
+    symptoms: ["cpu", "latency", "saturation", "throughput"]
+    indicators: ["cpu_seconds approaching 1.0", "ops_per_sec plateau while latency rises"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check whether throughput has plateaued while latency climbs — the signature of a saturated single thread."
+          zh: "检查是否出现吞吐停滞而延迟持续攀升 —— 这正是单线程饱和的特征。"
+      - risk: medium
+        statement:
+          en: "Shard the keyspace or move expensive Lua and O(N) work off the hot path."
+          zh: "对键空间做分片，或把昂贵的 Lua 与 O(N) 操作移出热路径。"
+
+  - id: instance-down
+    severity: critical
+    title:
+      en: "Instance unreachable"
+      zh: "实例不可达"
+    explanation:
+      en: "The exporter cannot reach Redis. Either the process is gone, the port is not accepting connections, or the exporter's own credentials are wrong — the last of which looks identical from the outside."
+      zh: "exporter 无法连上 Redis。要么进程已经不在，要么端口不接受连接，要么是 exporter 自己的凭据不对 —— 而最后一种情况从外部看起来一模一样。"
+    symptoms: ["down", "unreachable", "connection refused", "outage"]
+    indicators: ["up == 0", "restart markers in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Confirm whether the process restarted by looking for 'Ready to accept connections' inside the incident window."
+          zh: "在故障时间窗内查找 “Ready to accept connections”，以确认进程是否发生过重启。"
+      - risk: low
+        statement:
+          en: "Rule out an exporter credential problem before declaring the instance down; both look the same from outside."
+          zh: "在断定实例宕机之前，先排除 exporter 凭据问题；两者从外部看是一样的。"
+
+playbooks:
+  - id: redis.availability
+    title:
+      en: "Availability and restart check"
+      zh: "可用性与重启检查"
+    description:
+      en: "Runs on every Redis diagnosis: is the instance up, and did it restart inside the window?"
+      zh: "每次 Redis 诊断都会运行：实例是否在线，以及在时间窗内是否重启过？"
+    steps:
+      - id: collect-up
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:up}}" }
+          as: up
+      - id: eval-down
+        evaluate: "up.empty or up.latest < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The Redis instance is not reachable by the exporter during the window."
+              zh: "在该时间窗内，exporter 无法连上该 Redis 实例。"
+            detail:
+              en: "redis_up is 0 or absent. Everything downstream of this is unreliable until it is resolved."
+              zh: "redis_up 为 0 或缺失。在此问题解决前，其下游的一切判断都不可靠。"
+        onFalse:
+          pass:
+            en: "The instance was reachable throughout the window."
+            zh: "在整个时间窗内实例保持可达。"
+      - id: eval-flapping
+        evaluate: "not up.empty and up.min < 1 and up.latest >= 1"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "The instance was unreachable at some point in the window and has since recovered."
+              zh: "实例在时间窗内曾一度不可达，之后已恢复。"
+            detail:
+              en: "A recovered outage still explains client errors during the gap, and often indicates a restart."
+              zh: "一次已恢复的中断仍能解释期间的客户端报错，并且往往意味着发生过重启。"
+      - id: conclude-down
+        conclude: { failureMode: instance-down, when: "up.empty or up.min < 1" }
+
+  - id: redis.memory-pressure
+    title:
+      en: "Memory pressure and eviction"
+      zh: "内存压力与驱逐"
+    matches: ["memory", "oom", "evict", "eviction", "latency", "write error", "out of memory", "内存", "驱逐"]
+    description:
+      en: "Establishes whether the instance is at its memory ceiling and what that is costing."
+      zh: "判断实例是否已触及内存上限，以及这带来了什么代价。"
+    steps:
+      - id: collect-used
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:memory_used}}" }
+          as: used
+      - id: collect-max
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:memory_max}}" }
+          as: maxmem
+      - id: collect-evicted
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:evicted_rate}}" }
+          as: evicted
+      - id: collect-hits
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:hit_ratio}}" }
+          as: hits
+      - id: eval-pressure
+        evaluate: "not used.empty and not maxmem.empty and maxmem.latest > 0 and used.latest / maxmem.latest > 0.9"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Used memory is above 90% of the configured maxmemory."
+              zh: "已用内存超过配置 maxmemory 的 90%。"
+            detail:
+              en: "At this point Redis either evicts keys or refuses writes, depending on maxmemory-policy."
+              zh: "到了这一步，Redis 会根据 maxmemory-policy 要么驱逐 key，要么拒绝写入。"
+        onFalse:
+          pass:
+            en: "Used memory is comfortably below maxmemory."
+            zh: "已用内存距 maxmemory 仍有充足余量。"
+      - id: eval-unlimited
+        evaluate: "not maxmem.empty and maxmem.latest == 0"
+        onTrue:
+          finding:
+            severity: minor
+            confidence: 0.7
+            statement:
+              en: "maxmemory is unset, so Redis will grow until the host runs out of memory."
+              zh: "maxmemory 未设置，Redis 会一直增长直到宿主机内存耗尽。"
+            detail:
+              en: "Without a ceiling there is no eviction and no OOM error — the kernel OOM killer ends the process instead."
+              zh: "没有上限就没有驱逐、也没有 OOM 报错 —— 取而代之的是内核 OOM killer 直接结束进程。"
+      - id: eval-eviction
+        evaluate: "not evicted.empty and evicted.max > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Keys are being evicted, which pushes load onto whatever Redis is caching for."
+              zh: "正在发生 key 驱逐，这会把负载推给 Redis 所缓存的后端。"
+            detail:
+              en: "Every eviction becomes a future cache miss for a client that expected a hit."
+              zh: "每一次驱逐，都会变成某个本以为会命中的客户端未来的一次未命中。"
+        onFalse:
+          pass:
+            en: "No key eviction occurred during the window."
+            zh: "时间窗内未发生 key 驱逐。"
+      - id: eval-hitratio
+        evaluate: "not hits.empty and hits.latest < 0.8 and hits.max > 0.9"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.75
+            statement:
+              en: "The keyspace hit ratio fell sharply within the window."
+              zh: "键空间命中率在时间窗内明显下降。"
+            detail:
+              en: "A hit ratio that was healthy and then collapsed points at eviction or a restart, not at a client change."
+              zh: "命中率原本健康随后塌陷，指向的是驱逐或重启，而不是客户端行为变化。"
+      - id: conclude-pressure
+        conclude:
+          failureMode: memory-pressure
+          when: "not used.empty and not maxmem.empty and maxmem.latest > 0 and used.latest / maxmem.latest > 0.9"
+      - id: conclude-eviction
+        conclude:
+          failureMode: eviction-storm
+          when: "not evicted.empty and evicted.avg > 0"
+
+  - id: redis.latency
+    title:
+      en: "Latency and command blocking"
+      zh: "延迟与命令阻塞"
+    matches: ["latency", "slow", "timeout", "p99", "spike", "hang", "延迟", "超时", "慢"]
+    description:
+      en: "Separates latency caused by load from latency caused by one blocking command or a fork pause."
+      zh: "把由负载引起的延迟，与由某条阻塞命令或 fork 停顿引起的延迟区分开。"
+    steps:
+      - id: collect-ops
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:ops_per_sec}}" }
+          as: ops
+      - id: collect-cpu
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:cpu_seconds}}" }
+          as: cpu
+      - id: collect-fork
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:fork_usec}}" }
+          as: fork
+      - id: collect-blocked
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:blocked_clients}}" }
+          as: blocked
+      - id: eval-cpu
+        evaluate: "not cpu.empty and cpu.max > 0.85"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Redis approached single-core CPU saturation during the window."
+              zh: "在时间窗内 Redis 已接近单核 CPU 饱和。"
+            detail:
+              en: "Command execution is single-threaded, so this is a hard ceiling that more host CPUs will not raise."
+              zh: "命令执行是单线程的，因此这是一个硬性天花板，给宿主机加 CPU 并不能抬高它。"
+        onFalse:
+          pass:
+            en: "CPU stayed well below single-core saturation."
+            zh: "CPU 始终远低于单核饱和。"
+      - id: eval-fork
+        evaluate: "not fork.empty and fork.max > 100000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "A fork took over 100 ms, blocking Redis for that entire period."
+              zh: "某次 fork 耗时超过 100 毫秒，在此期间 Redis 完全阻塞。"
+            detail:
+              en: "Background saves and replica sync both fork; latency spikes will line up with them."
+              zh: "后台保存与从节点同步都会 fork；延迟毛刺会与它们在时间上对齐。"
+        onFalse:
+          pass:
+            en: "No long fork pause was observed."
+            zh: "未观察到长时间的 fork 停顿。"
+      - id: eval-blocked
+        evaluate: "not blocked.empty and blocked.max > 0 and blocked.latest > 0"
+        onTrue:
+          finding:
+            severity: minor
+            confidence: 0.6
+            statement:
+              en: "Clients are blocked waiting on Redis operations."
+              zh: "有客户端阻塞在 Redis 操作上等待。"
+            detail:
+              en: "Blocked clients are expected with BLPOP-style consumers, but a growing count means consumers are starved."
+              zh: "使用 BLPOP 之类消费方式时出现阻塞客户端是正常的，但数量持续增长说明消费方在挨饿。"
+      - id: eval-idle-latency
+        evaluate: "not ops.empty and not cpu.empty and cpu.max < 0.5 and ops.avg > 0"
+        onTrue:
+          finding:
+            severity: info
+            confidence: 0.5
+            statement:
+              en: "Latency is not explained by throughput: Redis was not CPU-bound during the window."
+              zh: "延迟无法用吞吐量解释：时间窗内 Redis 并未受 CPU 限制。"
+            detail:
+              en: "Look at individual slow commands, fork pauses, or the network path rather than at load."
+              zh: "应当检查单条慢命令、fork 停顿或网络链路，而不是整体负载。"
+      - id: conclude-slow
+        conclude:
+          failureMode: slow-commands
+          when: "not cpu.empty and cpu.max > 0.85"
+      - id: conclude-fork
+        conclude:
+          failureMode: fork-latency
+          when: "not fork.empty and fork.max > 100000"
+
+  - id: redis.connections
+    title:
+      en: "Connection saturation"
+      zh: "连接数饱和"
+    matches: ["connection", "refused", "max clients", "timeout", "pool", "连接", "拒绝"]
+    description:
+      en: "Determines whether clients are being refused because the connection ceiling was reached."
+      zh: "判断客户端被拒绝是否因为达到了连接数上限。"
+    steps:
+      - id: collect-clients
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:connected_clients}}" }
+          as: clients
+      - id: collect-maxclients
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:max_clients}}" }
+          as: maxclients
+      - id: collect-rejected
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:rejected_rate}}" }
+          as: rejected
+      - id: eval-rejected
+        evaluate: "not rejected.empty and rejected.max > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Redis refused connections during the window."
+              zh: "在时间窗内 Redis 拒绝了连接。"
+            detail:
+              en: "Rejected connections mean the maxclients ceiling was reached; clients saw connection errors."
+              zh: "出现被拒连接说明已达 maxclients 上限；客户端会看到连接错误。"
+        onFalse:
+          pass:
+            en: "No connections were refused."
+            zh: "没有连接被拒绝。"
+      - id: eval-near-ceiling
+        evaluate: "not clients.empty and not maxclients.empty and maxclients.latest > 0 and clients.max / maxclients.latest > 0.85"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Connected clients reached more than 85% of maxclients."
+              zh: "连接客户端数已超过 maxclients 的 85%。"
+            detail:
+              en: "This is typically a client pooling defect: a connection opened per request rather than reused."
+              zh: "这通常是客户端连接池缺陷：每个请求新建连接而非复用连接。"
+        onFalse:
+          pass:
+            en: "Connection count stayed well below the configured ceiling."
+            zh: "连接数始终远低于配置上限。"
+      - id: conclude
+        conclude:
+          failureMode: connection-saturation
+          when: "(not rejected.empty and rejected.max > 0) or (not clients.empty and not maxclients.empty and maxclients.latest > 0 and clients.max / maxclients.latest > 0.85)"
+
+  - id: redis.persistence
+    title:
+      en: "Persistence health"
+      zh: "持久化健康度"
+    matches: ["persistence", "rdb", "aof", "misconf", "write error", "disk", "save", "持久化", "磁盘"]
+    description:
+      en: "Checks whether saves are succeeding, because a failed save turns into a total write outage by default."
+      zh: "检查保存是否成功 —— 因为在默认配置下，一次失败的保存会演变成写入完全中断。"
+    steps:
+      - id: collect-rdb
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:rdb_last_status}}" }
+          as: rdb
+      - id: collect-aof
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:aof_last_write_status}}" }
+          as: aof
+      - id: collect-changes
+        collect:
+          tool: promql.instant
+          args: { query: "{{signal:rdb_changes_since_save}}" }
+          as: changes
+      - id: eval-rdb
+        evaluate: "not rdb.empty and rdb.latestMin < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.95
+            statement:
+              en: "The last background save failed."
+              zh: "上一次后台保存失败。"
+            detail:
+              en: "With stop-writes-on-bgsave-error at its default, Redis refuses every write until a save succeeds."
+              zh: "在 stop-writes-on-bgsave-error 保持默认的情况下，Redis 会拒绝所有写入，直到某次保存成功。"
+        onFalse:
+          pass:
+            en: "The last background save succeeded."
+            zh: "上一次后台保存成功。"
+      - id: eval-aof
+        evaluate: "not aof.empty and aof.latestMin < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.95
+            statement:
+              en: "The last AOF write failed."
+              zh: "上一次 AOF 写入失败。"
+            detail:
+              en: "AOF write failures are almost always disk space, disk errors or permissions on the data directory."
+              zh: "AOF 写入失败几乎总是数据目录的磁盘空间、磁盘错误或权限问题。"
+      - id: conclude
+        conclude:
+          failureMode: persistence-failure
+          when: "(not rdb.empty and rdb.latestMin < 1) or (not aof.empty and aof.latestMin < 1)"
+
+  - id: redis.replication
+    title:
+      en: "Replication health"
+      zh: "复制健康度"
+    matches: ["replication", "replica", "slave", "sync", "lag", "stale", "failover", "复制", "从节点", "滞后"]
+    description:
+      en: "Checks the replication link and how much data a failover would currently lose."
+      zh: "检查复制链路，以及此刻发生故障切换会丢失多少数据。"
+    steps:
+      - id: collect-link
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:master_link_up}}" }
+          as: link
+      - id: collect-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:repl_offset_lag}}" }
+          as: lag
+      - id: eval-link
+        evaluate: "not link.empty and link.latestMin < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "A replica has lost its link to the master."
+              zh: "有从节点与主节点的链路已断开。"
+            detail:
+              en: "Reads from that replica are stale, and a failover now would lose everything written since the link dropped."
+              zh: "该从节点上的读取是陈旧的；此刻切换会丢失自链路断开以来写入的全部数据。"
+        onFalse:
+          pass:
+            en: "Replication links were up throughout the window."
+            zh: "时间窗内复制链路始终正常。"
+      - id: eval-lag
+        evaluate: "not lag.empty and lag.max > 10000000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Replication lag exceeded 10 MB of un-replicated data."
+              zh: "复制滞后超过 10 MB 未复制数据。"
+            detail:
+              en: "The offset gap is exactly the data a failover would discard."
+              zh: "偏移量差值正好等于一次故障切换会丢弃的数据量。"
+      - id: conclude
+        conclude:
+          failureMode: replication-broken
+          when: "(not link.empty and link.latestMin < 1) or (not lag.empty and lag.max > 10000000)"
+
+  - id: redis.memory-shape
+    title:
+      en: "Fragmentation and swapping"
+      zh: "碎片与换页"
+    matches: ["memory", "fragmentation", "rss", "swap", "latency", "碎片", "换页"]
+    description:
+      en: "Distinguishes allocator fragmentation from the far worse case of the dataset being swapped to disk."
+      zh: "把分配器碎片，与更糟糕的“数据集被换出到磁盘”这两种情况区分开。"
+    steps:
+      - id: collect-frag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:fragmentation}}" }
+          as: frag
+      - id: eval-swap
+        evaluate: "not frag.empty and frag.min > 0 and frag.min < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "The fragmentation ratio dropped below 1, which means part of the dataset is swapped to disk."
+              zh: "碎片率降到 1 以下，说明部分数据集已被换出到磁盘。"
+            detail:
+              en: "Once Redis is swapping, its latency is disk latency; no Redis-side tuning will fix it."
+              zh: "一旦 Redis 开始换页，它的延迟就等于磁盘延迟；任何 Redis 侧的调优都无济于事。"
+      - id: eval-frag
+        evaluate: "not frag.empty and frag.latest > 1.5"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "Memory fragmentation is above 1.5."
+              zh: "内存碎片率高于 1.5。"
+            detail:
+              en: "The allocator is holding substantially more memory than the dataset needs."
+              zh: "分配器持有的内存明显多于数据集实际所需。"
+        onFalse:
+          pass:
+            en: "Memory fragmentation is within normal bounds."
+            zh: "内存碎片率处于正常范围。"
+      - id: conclude
+        conclude:
+          failureMode: fragmentation
+          when: "not frag.empty and (frag.latest > 1.5 or (frag.min > 0 and frag.min < 1))"
+
+inspect:
+  - id: info
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "INFO"]
+    description:
+      en: "Full INFO output: memory, clients, persistence, replication and stats in one read."
+      zh: "完整 INFO 输出：一次读取即可拿到内存、客户端、持久化、复制与统计信息。"
+  - id: info-memory
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "INFO", "memory"]
+    description:
+      en: "Memory section only."
+      zh: "仅内存部分。"
+  - id: slowlog
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "SLOWLOG", "GET", "25"]
+    description:
+      en: "The 25 slowest recent commands, with their arguments and durations."
+      zh: "最近最慢的 25 条命令，含参数与耗时。"
+  - id: client-list
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "CLIENT", "LIST"]
+    description:
+      en: "Every connected client with its address, idle time and last command."
+      zh: "每个已连接客户端及其地址、空闲时间与最后执行的命令。"
+  - id: config-maxmemory
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "CONFIG", "GET", "maxmemory*"]
+    description:
+      en: "maxmemory and maxmemory-policy, which decide whether pressure becomes eviction or errors."
+      zh: "maxmemory 与 maxmemory-policy —— 它们决定内存压力表现为驱逐还是报错。"
+  - id: latency-latest
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "LATENCY", "LATEST"]
+    description:
+      en: "Latest latency spikes attributed to an event class."
+      zh: "最近的延迟毛刺，并归因到具体事件类别。"
+  - id: memory-doctor
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "MEMORY", "DOCTOR"]
+    description:
+      en: "Redis's own memory assessment."
+      zh: "Redis 自带的内存诊断意见。"
+  - id: cluster-info
+    binary: redis-cli
+    args: ["-h", "{{.host}}", "-p", "{{.port}}", "CLUSTER", "INFO"]
+    description:
+      en: "Cluster state and slot coverage."
+      zh: "集群状态与槽位覆盖情况。"
+
+source:
+  repos: ["https://github.com/redis/redis"]

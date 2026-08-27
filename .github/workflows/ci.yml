@@ -1,0 +1,324 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.24"
+  # Pinned so CI and `make lint` run the same linter. `.golangci.yml` is in v2
+  # format and only a v2 binary can read it.
+  GOLANGCI_VERSION: "2.5.0"
+
+jobs:
+  verify:
+    name: Format, vet and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # Installed rather than run through golangci-lint-action: that action's
+      # `version: latest` resolved to 1.64.8, which rejects `.golangci.yml`
+      # outright because the file is in v2 format ("additional properties
+      # 'version', 'formatters' not allowed"). Pinning the binary here makes CI
+      # run exactly the version a contributor runs locally, and a lint upgrade
+      # becomes one line in one place.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${{ env.GOLANGCI_VERSION }}
+
+      - name: golangci-lint
+        run: golangci-lint run --timeout=5m ./...
+
+      # The web console has no build step and no package manifest
+      # (specs/012-web-console, NFR-001), so without this nothing would notice
+      # a syntax error before a reader's browser did. `--check` parses without
+      # executing; node is preinstalled on this runner.
+      - name: Parse the web console script
+        run: node --check internal/httpapi/assets/app.js
+
+  sdd:
+    name: Specification checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Bilingual parity, cascade freshness and requirement coverage. A change
+      # that edits one language, or advances a spec without re-reviewing what
+      # derives from it, fails here rather than reaching main.
+      - name: sddctl verify
+        run: go run ./cmd/sddctl verify
+
+      - name: Generated error-code references are up to date
+        run: |
+          go run ./cmd/mas errcodes --format markdown --lang en > /tmp/error-codes.en.md
+          go run ./cmd/mas errcodes --format markdown --lang zh > /tmp/error-codes.zh.md
+          if ! diff -q /tmp/error-codes.en.md docs/en/error-codes.md >/dev/null 2>&1; then
+            echo "docs/en/error-codes.md is stale; run: make errcodes-docs"
+            diff -u docs/en/error-codes.md /tmp/error-codes.en.md || true
+            exit 1
+          fi
+          if ! diff -q /tmp/error-codes.zh.md docs/zh/error-codes.md >/dev/null 2>&1; then
+            echo "docs/zh/error-codes.md is stale; run: make errcodes-docs"
+            diff -u docs/zh/error-codes.md /tmp/error-codes.zh.md || true
+            exit 1
+          fi
+
+  test:
+    name: Tests (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.24"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      # The suite must not need a network: every external system is stubbed.
+      # This is what makes the tests trustworthy in an air-gapped build too.
+      - name: Test with the race detector
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  eval:
+    name: Diagnostic case corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The corpus runs the whole pipeline against cases with known causes, over
+      # real HTTP to stub metric and log servers. It exits non-zero when a case
+      # misses or reaches a conclusion the case rules out, which is what makes
+      # this a gate rather than a report.
+      - name: Build mas
+        run: go build -trimpath -o /tmp/mas ./cmd/mas
+
+      # The baseline gate rather than the absolute one: a cell that
+      # legitimately cannot pass is recorded and stays listed, instead of the
+      # case being deleted to get a green build — and the case is the only
+      # record that the gap exists.
+      - name: Run the corpus against the recorded baseline
+        run: /tmp/mas eval --matrix --baseline internal/eval/baseline.json
+
+      # Recorded even when the gate above failed: the JSON is how someone sees
+      # which case moved, and a failed run is exactly when they need it.
+      - name: Record the result for comparison across runs
+        if: always()
+        continue-on-error: true
+        run: /tmp/mas eval --matrix --baseline internal/eval/baseline.json --json > eval.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval
+          path: eval.json
+          retention-days: 30
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags "-s -w" -o /tmp/mas ./cmd/mas
+
+  demo:
+    name: End-to-end demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Proves the claim the README makes: one command after cloning produces a
+      # real report, with no credentials and no live middleware.
+      - name: make demo
+        run: make demo
+
+      - name: The report must be a real diagnosis
+        run: |
+          test -s .demo/report.en.md
+          test -s .demo/report.zh.md
+          grep -q "## Hypotheses" .demo/report.en.md
+          grep -q "## Recommended next steps" .demo/report.en.md
+          grep -q "read-only" .demo/report.en.md
+          grep -q "## 假设" .demo/report.zh.md
+
+      # The user manual tells operators to compare topologies on one case. The
+      # demo runs that comparison, so CI checks every topology produced a real
+      # diagnosis rather than only that the command exited zero.
+      - name: Every topology must have produced a diagnosis
+        run: |
+          for t in single supervisor plan-execute debate blackboard; do
+            python3 scripts/check_topology_report.py ".demo/topology.$t.json" "$t"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-reports
+          path: |
+            .demo/*.md
+            .demo/topology.*.json
+          retention-days: 7
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: mas-turbo:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The image must run, non-root, and produce a report
+        run: |
+          docker run --rm mas-turbo:ci version
+          docker run --rm mas-turbo:ci topologies
+          uid=$(docker run --rm --entrypoint id mas-turbo:ci -u)
+          if [ "$uid" = "0" ]; then
+            echo "the image runs as root; it must not"
+            exit 1
+          fi
+          echo "image runs as uid $uid"
+
+      # The console ships inside the binary via //go:embed. Nothing else would
+      # notice if an asset stopped being embedded, because a missing file is a
+      # build error only when the embed directive names it — and this proves
+      # the shipped image, not the test binary, actually serves it.
+      - name: The image must serve the web console
+        run: |
+          # Binding anything but loopback requires credentials and either TLS
+          # or a declared terminating proxy — the rule feature 009 enforces at
+          # startup, and the reason a bare `--addr 0.0.0.0:8080` here refuses
+          # with MAS-7010. This is the configuration a deployment behind an
+          # ingress actually writes.
+          mkdir -p /tmp/mas-ci
+          cat > /tmp/mas-ci/mas.yaml <<'YAML'
+          server:
+            addr: "0.0.0.0:8080"
+            auth:
+              tokens:
+                - name: ci
+                  token: "ci-token"
+                  scopes: [read]
+            tls:
+              terminated_by_proxy: true
+          YAML
+          docker run --rm -d --name mas-console -p 18080:8080 \
+            -v /tmp/mas-ci:/etc/mas:ro mas-turbo:ci serve
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:18080/healthz && break
+            sleep 1
+          done
+          if ! curl -sf -o /dev/null http://127.0.0.1:18080/healthz; then
+            echo "the container never became healthy; its log:"
+            docker logs mas-console || true
+            docker rm -f mas-console >/dev/null 2>&1 || true
+            exit 1
+          fi
+          shell=$(curl -sf http://127.0.0.1:18080/ui/)
+          strings=$(curl -sf 'http://127.0.0.1:18080/ui/strings.json?lang=zh')
+          script=$(curl -sf http://127.0.0.1:18080/ui/app.js)
+          csp=$(curl -sfD - -o /dev/null http://127.0.0.1:18080/ui/ | grep -i 'content-security-policy')
+          # The shell above was fetched with no credential. The API must not be.
+          # This runs while the container is still up: after `docker rm` a
+          # refused connection would make the check pass without proving
+          # anything.
+          guarded=ok
+          curl -sf -o /dev/null http://127.0.0.1:18080/api/v1/targets && guarded=open
+          docker rm -f mas-console >/dev/null
+          echo "$shell" | grep -q '<!DOCTYPE html>' || { echo "the shell was not served"; exit 1; }
+          echo "$strings" | grep -q 'MAS-Turbo 控制台' || { echo "the string table was not served"; exit 1; }
+          echo "$script" | grep -q 'textContent' || { echo "the script was not served"; exit 1; }
+          echo "$csp" | grep -q "default-src 'none'" || { echo "no deny-by-default CSP"; exit 1; }
+          [ "$guarded" = ok ] || { echo "the API answered without a credential"; exit 1; }
+          echo "the image serves the console, and its API still demands a credential"
+
+      - name: Image size gate
+        run: |
+          bytes=$(docker image inspect mas-turbo:ci --format '{{.Size}}')
+          mb=$((bytes / 1024 / 1024))
+          echo "image size: ${mb} MB"
+          if [ "$mb" -gt 100 ]; then
+            echo "image exceeds the 100 MB budget from NFR-005"
+            exit 1
+          fi

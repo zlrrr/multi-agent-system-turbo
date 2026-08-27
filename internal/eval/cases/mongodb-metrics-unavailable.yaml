@@ -1,0 +1,46 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: mongodb-metrics-unavailable
+  middleware: mongodb
+  version: "7.0.5"
+  title:
+    en: "Metrics gone; the log still names the fault"
+    zh: "指标不可用，日志仍指出了故障"
+  description:
+    en: >-
+      Prometheus is returning errors for the whole window, so every metric check
+      is unperformed. The log still carries wtimeout, which is enough to reach
+      the write-concern conclusion — and the run must declare the missing
+      metrics rather than presenting a partial picture as a complete one. The
+      modes ruled out are the metric-backed ones: with the numbers gone they are
+      neither confirmed nor denied, and concluding any of them would be a guess
+      wearing a measurement's clothes.
+    zh: >-
+      整个时间窗内 Prometheus 都在返回错误，因此所有基于指标的检查都未被执行。
+      日志中仍带有 wtimeout，足以得出写关注相关的结论 ——
+      同时本次运行必须声明指标缺失，而不能把一幅残缺的图景当成完整的呈上。
+      被排除的都是依赖指标的模式：数字没了，它们既未被确认也未被否定，
+      此时得出其中任何一个，都只是披着测量外衣的猜测。
+
+symptom:
+  en: "majority write concern timeouts"
+  zh: "majority 写关注超时"
+
+telemetry:
+  withhold: [metrics]
+  logs:
+    - "{\"s\":\"I\",\"c\":\"WRITE\",\"msg\":\"waiting for replication timed out\",\"attr\":{\"wtimeout\":5000}}"
+    - "{\"s\":\"W\",\"c\":\"REPL\",\"msg\":\"Applier batch took longer than expected\"}"
+    - "{\"s\":\"I\",\"c\":\"WRITE\",\"msg\":\"waiting for replication timed out\",\"attr\":{\"wtimeout\":5000}}"
+
+expect:
+  failure_modes: [write-concern-stall]
+  gaps: ["MAS-4002"]
+  not_failure_modes:
+    - replication-lag
+    - primary-election
+    - connection-saturation
+    - storage-pressure
+    - slow-queries
+    - lock-contention

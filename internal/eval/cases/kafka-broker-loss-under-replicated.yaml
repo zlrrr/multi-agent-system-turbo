@@ -1,0 +1,49 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: kafka-broker-loss-under-replicated
+  middleware: kafka
+  version: "3.7.0"
+  title:
+    en: "A broker left the cluster and partitions are under-replicated"
+    zh: "一台 broker 离开集群，分区处于副本不足状态"
+  description:
+    en: >-
+      The broker count fell from three to two and under-replicated partitions
+      climbed from zero to forty-one. The answer is the lost broker and the
+      under-replication it caused. The symptom an operator would report —
+      consumers falling behind — points at the consumer group, and consumer lag
+      is in fact flat and falling, so a diagnosis reaching consumer-lag-growth
+      followed the complaint rather than the evidence. Offline partitions and
+      the controller are both measured and both healthy, which is what
+      separates "a replica is missing" from "a partition has no leader".
+    zh: >-
+      broker 数量从 3 降到 2，副本不足的分区数从 0 上升到 41。
+      正确答案是这台丢失的 broker 以及它导致的副本不足。运维人员会报告的症状 ——
+      消费者落后 —— 指向消费组，而消费延迟实际上是平的且在下降，
+      因此得出 consumer-lag-growth 的诊断是跟着抱怨走，而不是跟着证据走。
+      离线分区数与 controller 都有实测数据且都健康，
+      这正是区分“副本缺失”与“分区无 leader”的依据。
+
+symptom:
+  en: "consumers are falling behind and clients report NotEnoughReplicas"
+  zh: "消费者落后，客户端报 NotEnoughReplicas"
+
+telemetry:
+  metrics:
+    kafka_brokers: [3, 3, 2]
+    kafka_controller_kafkacontroller_activecontrollercount: [1, 1, 1]
+    kafka_controller_kafkacontroller_offlinepartitionscount: [0, 0, 0]
+    kafka_topic_partition_under_replicated_partition: [0, 24, 41]
+    kafka_consumergroup_lag: [400, 380, 350]
+    kafka_topic_partition_current_offset: [1200, 1180, 1150]
+    kafka_server_replicamanager_partitioncount: [180, 180, 180]
+  logs:
+    - "[ReplicaFetcherThread] Error for partition orders-7 to broker 3: NOT_LEADER_OR_FOLLOWER"
+    - "[Controller id=1] Shrinking ISR from 3,2,1 to 2,1 for partition orders-7"
+    - "[Controller id=1] Broker 3 failed, removing it from the cluster metadata"
+    - "[ReplicaManager] Error processing append operation on partition orders-7: NotEnoughReplicasException"
+
+expect:
+  failure_modes: [broker-loss, under-replicated-partitions]
+  not_failure_modes: [offline-partitions, controller-instability, consumer-lag-growth]

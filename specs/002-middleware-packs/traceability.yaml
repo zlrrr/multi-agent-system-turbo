@@ -1,0 +1,39 @@
+# Cascade tracking (Constitution Art. II.2).
+# `derived_from_version` records the upstream version this artifact was last
+# reconciled against. When upstream `version` exceeds it, `sddctl verify` marks
+# this artifact stale and CI fails until it is re-reviewed and re-stamped.
+feature: 002-middleware-packs
+artifacts:
+  - id: goals
+    path: ../../docs/en/project-goals.md
+    version: 1.3.0
+    upstream: null
+    derived_from_version: null
+  - id: spec
+    # Re-reviewed against goals 1.1.1: the amendment records this feature as
+    # delivered and pulls P2-3 forward; both describe what spec.md already asked
+    # for, so no requirement changed.
+    path: spec.md
+    version: 1.0.0
+    upstream: goals
+    derived_from_version: 1.3.0
+  - id: plan
+    path: plan.md
+    version: 1.0.0
+    upstream: spec
+    derived_from_version: 1.0.0
+  - id: hld
+    path: design-hld.md
+    version: 1.0.0
+    upstream: plan
+    derived_from_version: 1.0.0
+  - id: lld
+    path: design-lld.md
+    version: 1.0.0
+    upstream: hld
+    derived_from_version: 1.0.0
+  - id: tasks
+    path: tasks.md
+    version: 1.0.1
+    upstream: lld
+    derived_from_version: 1.0.0

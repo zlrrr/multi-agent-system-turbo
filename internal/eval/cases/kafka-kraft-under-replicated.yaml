@@ -1,0 +1,46 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: kafka-kraft-under-replicated
+  middleware: kafka
+  version: "4.0.1"
+  title:
+    en: "Under-replicated partitions on a KRaft cluster, with a ZooKeeper red herring in the log"
+    zh: "KRaft 集群出现副本不足，日志中还混着一条 ZooKeeper 干扰项"
+  description:
+    en: >-
+      Kafka 4.0 removed ZooKeeper, and this cluster's log carries a line that
+      the pack's ZooKeeper pattern would have matched on 3.x. The pattern is
+      scoped below 4.0, so on this version it is not applied at all — and the
+      run says so, which is why the case expects the version-scoping gap. The
+      answer is the under-replication the metrics show. Every other cluster-level
+      reading is clean, so a diagnosis reaching one of them followed the log line
+      rather than the measurement.
+    zh: >-
+      Kafka 4.0 移除了 ZooKeeper，而这个集群的日志中有一行在 3.x 上会被知识包的
+      ZooKeeper 模式匹配到。该模式被限定在 4.0 以下，因此在这个版本上它根本不会被应用 ——
+      而本次运行会如实说明这一点，这正是本用例期望那条版本限定缺口的原因。
+      正确答案是指标所显示的副本不足。其余每一项集群级读数都干净，
+      因此得出其中任何一个结论的诊断，都是跟着那行日志走，而不是跟着测量走。
+
+symptom:
+  en: "partitions are under-replicated after a rolling restart"
+  zh: "滚动重启之后出现分区副本不足"
+
+telemetry:
+  metrics:
+    kafka_brokers: [3, 3, 3]
+    kafka_controller_kafkacontroller_activecontrollercount: [1, 1, 1]
+    kafka_controller_kafkacontroller_offlinepartitionscount: [0, 0, 0]
+    kafka_topic_partition_under_replicated_partition: [0, 18, 33]
+    kafka_consumergroup_lag: [220, 210, 205]
+    kafka_topic_partition_current_offset: [3100, 3120, 3110]
+  logs:
+    - "[ReplicaFetcherThread] Error for partition events-11 to broker 3: NOT_LEADER_OR_FOLLOWER"
+    - "Unable to reconnect to ZooKeeper, giving up"
+    - "[BrokerLifecycleManager] Broker 3 sent a heartbeat to the active controller"
+
+expect:
+  failure_modes: [under-replicated-partitions]
+  not_failure_modes: [broker-loss, offline-partitions, controller-instability]
+  gaps: ["MAS-5019"]

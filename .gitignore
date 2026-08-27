@@ -1,0 +1,10 @@
+/bin/
+/dist/
+/.cache/
+*.test
+*.out
+coverage.*
+.DS_Store
+/runs/
+/tmp/
+.demo/

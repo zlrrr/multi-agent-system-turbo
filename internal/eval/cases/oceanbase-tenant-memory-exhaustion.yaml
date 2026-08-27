@@ -1,0 +1,58 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: oceanbase-tenant-memory-exhaustion
+  middleware: oceanbase
+  version: "4.2.1"
+  title:
+    en: "One tenant at its memory ceiling inside a healthy cluster"
+    zh: "健康集群内某个租户顶到自身内存上限"
+  description:
+    en: >-
+      Tenant memory reached 96% of that tenant's own limit while every
+      cluster-level reading stayed comfortable: all observers in service, no
+      merge error, redo-log disk at 33%, data disk at 57%. That contrast is the
+      case — an OceanBase incident is normally a tenant hitting the edge of its
+      slice, and a cluster-level memory graph shows nothing at all. The three
+      ruled-out modes are the cluster-level answers, and the fourth, CPU
+      throttling, is the other per-tenant limit: at 2.1 of 4 assigned units the
+      tenant is not being throttled.
+    zh: >-
+      租户内存达到该租户自身上限的 96%，而所有集群级读数都很宽裕：
+      observer 全部在服务、无合并错误、redo 日志盘 33%、数据盘 57%。
+      这一反差正是本用例的要点 —— OceanBase 的故障通常是某个租户触及自己那一份的边界，
+      而集群级内存曲线上什么都看不出来。被排除的三个模式是集群级的答案，
+      第四个 CPU 限流则是另一个租户级上限：在分配的 4 个单元中只用了 2.1，
+      该租户并未被限流。
+
+symptom:
+  en: "one tenant reports memory allocation failures while the cluster has memory free"
+  zh: "某个租户报告内存分配失败，而集群内存仍有余量"
+
+telemetry:
+  metrics:
+    ob_tenant_memory_bytes: [0.72, 0.89, 0.96]
+    ob_tenant_memstore_active_bytes: [0.41, 0.55, 0.68]
+    ob_tenant_cpu_usage: [1.8, 2.0, 2.1]
+    ob_tenant_cpu_limit: [4, 4, 4]
+    ob_active_session_num: [40, 44, 48]
+    ob_server_status: [1, 1, 1]
+    ob_zone_merge_time_seconds: [300, 420, 540]
+    ob_zone_merge_error: [0, 0, 0]
+    ob_clog_disk_used_bytes: [0.31, 0.32, 0.33]
+    ob_disk_used_bytes: [0.55, 0.56, 0.57]
+    # `up` is the oceanbase pack's liveness signal; the brace is what keeps this
+    # key from matching every other query that happens to contain "up".
+    "up{": [1, 1, 1]
+  logs:
+    - "[ERROR] alloc memory failed, ret=-4013, OB_ALLOCATE_MEMORY_FAILED tenant_id=1002"
+    - "[WARN] Over tenant memory limits, tenant_id=1002 hold=15.4G limit=16G"
+    - "[ERROR] alloc memory failed, ret=-4013, OB_ALLOCATE_MEMORY_FAILED tenant_id=1002"
+
+expect:
+  failure_modes: [tenant-memory-exhaustion]
+  not_failure_modes:
+    - tenant-cpu-throttling
+    - major-merge-delay
+    - disk-pressure
+    - observer-unavailable

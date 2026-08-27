@@ -1,0 +1,42 @@
+apiVersion: mas.turbo/v1
+kind: DiagnosticCase
+metadata:
+  id: mongodb-connection-saturation
+  middleware: mongodb
+  version: "7.0.5"
+  title:
+    en: "Connection pool exhausted while the disk fills slowly"
+    zh: "连接池耗尽，同时磁盘在缓慢增长"
+  description:
+    en: >-
+      Available connections fell from 400 to 60. The disk is at 64% and the
+      WiredTiger cache is 7% dirty, so the storage the report mentions is
+      growing but nowhere near a problem — it is the thing an operator noticed
+      while looking for a cause. Ruling storage out is the point: capacity
+      pressure and connection exhaustion look alike from the application, and
+      only one of them is fixed by a bigger disk.
+    zh: >-
+      可用连接数从 400 降到 60。磁盘占用 64%，WiredTiger 缓存脏页率 7%，
+      因此报告中提到的存储确实在增长，但离出问题还很远 ——
+      它只是运维人员在找原因时顺手注意到的东西。排除存储正是本用例的要点：
+      容量压力与连接耗尽在应用侧看起来一模一样，而其中只有一个能靠加大磁盘解决。
+
+symptom:
+  en: "connections are refused and the disk is filling"
+  zh: "连接被拒绝，同时磁盘在被填满"
+
+telemetry:
+  metrics:
+    mongodb_up: [1, 1, 1]
+    mongodb_mongod_replset_member_health: [1, 1, 1]
+    mongodb_mongod_replset_election_count: [0, 0, 0]
+    mongodb_ss_connections_available: [400, 180, 60]
+    mongodb_ss_wt_cache_tracked_dirty_bytes_in_the_cache: [0.05, 0.06, 0.07]
+    node_filesystem_avail_bytes: [0.62, 0.63, 0.64]
+  logs:
+    - "{\"s\":\"W\",\"c\":\"NETWORK\",\"msg\":\"connection refused because too many open connections\",\"attr\":{\"connectionCount\":19940}}"
+    - "{\"s\":\"W\",\"c\":\"NETWORK\",\"msg\":\"connection refused because too many open connections\",\"attr\":{\"connectionCount\":19972}}"
+
+expect:
+  failure_modes: [connection-saturation]
+  not_failure_modes: [storage-pressure, primary-election]

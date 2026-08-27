@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>MAS-Turbo</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!--
+  The shell carries no data. Every value on the finished page arrives through
+  the authorised API and is placed with textContent — never parsed as markup —
+  because report prose is written by a language model and quoted from estate
+  logs (specs/012-web-console/design-hld.md §4).
+-->
+<header id="bar">
+  <a id="brand" href="#/runs">MAS-Turbo</a>
+  <nav id="nav"></nav>
+  <div id="bar-right">
+    <button id="lang-toggle" type="button">中文</button>
+    <button id="signout" type="button" hidden></button>
+  </div>
+</header>
+<main id="view"></main>
+<footer id="foot"></footer>
+<script src="app.js"></script>
+</body>
+</html>

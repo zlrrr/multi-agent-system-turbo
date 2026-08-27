@@ -1,0 +1,581 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: pulsar
+  name: pulsar-core
+  version: 1.0.0
+  versionRange: ">=2.8"
+
+# Signals use the Pulsar broker's and BookKeeper's built-in Prometheus endpoints.
+signals:
+  - id: up
+    promql: 'up{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when Prometheus can scrape the broker, 0 when it cannot."
+      zh: "Prometheus 能抓取到该 broker 时为 1，抓不到为 0。"
+  - id: backlog
+    promql: 'sum(pulsar_subscription_back_log{{.selector}}) by (topic, subscription)'
+    unit: messages
+    description:
+      en: "Messages a subscription has not yet acknowledged, per topic and subscription."
+      zh: "按 topic 与订阅统计的、尚未被确认的消息数。"
+  - id: backlog_total
+    promql: 'sum(pulsar_subscription_back_log{{.selector}})'
+    unit: messages
+    description:
+      en: "Total unacknowledged messages across all subscriptions."
+      zh: "所有订阅未确认消息总数。"
+  - id: msg_rate_in
+    promql: 'sum(pulsar_rate_in{{.selector}})'
+    unit: messages/s
+    description:
+      en: "Messages produced per second across the broker."
+      zh: "该 broker 上每秒生产的消息数。"
+  - id: msg_rate_out
+    promql: 'sum(pulsar_rate_out{{.selector}})'
+    unit: messages/s
+    description:
+      en: "Messages dispatched per second. Persistently below rate_in means the backlog can only grow."
+      zh: "每秒派发的消息数。持续低于 rate_in 意味着积压只会增长。"
+  - id: storage_size
+    promql: 'sum(pulsar_storage_size{{.selector}})'
+    unit: bytes
+    description:
+      en: "Bytes held in topic storage, including the backlog not yet acknowledged."
+      zh: "topic 存储占用的字节数，含尚未确认的积压。"
+  - id: publish_latency_p99
+    promql: 'max(pulsar_broker_publish_latency{{.selector}})'
+    unit: milliseconds
+    description:
+      en: "Publish latency as the broker measures it. It tracks BookKeeper write latency closely."
+      zh: "broker 侧测得的发布时延。它与 BookKeeper 的写入时延高度相关。"
+  - id: bookie_write_latency
+    promql: 'max(bookkeeper_server_ADD_ENTRY_REQUEST{{.selector}})'
+    unit: milliseconds
+    description:
+      en: "Bookie add-entry latency — the disk latency every Pulsar write ultimately waits on."
+      zh: "bookie 的 add-entry 时延 —— 每一次 Pulsar 写入最终都要等待的磁盘时延。"
+  - id: bookie_writable
+    promql: 'min(bookie_SERVER_STATUS{{.selector}})'
+    unit: bool
+    description:
+      en: "0 when a bookie has gone read-only, which it does when its disk crosses the usage threshold."
+      zh: "当某个 bookie 转为只读时为 0 —— 它在磁盘使用率越过阈值时会这样做。"
+  - id: bookie_ledger_dir_usage
+    promql: 'max(bookie_ledger_dir__pulsar_data_bookkeeper_ledgers_usage{{.selector}})'
+    unit: ratio
+    description:
+      en: "Ledger directory utilisation. A bookie turns read-only rather than fill its disk."
+      zh: "ledger 目录使用率。bookie 会转为只读，而不会把磁盘写满。"
+  - id: topics_count
+    promql: 'sum(pulsar_topics_count{{.selector}})'
+    unit: topics
+    description:
+      en: "Topics owned by this broker. A sharp change means ownership moved."
+      zh: "该 broker 所拥有的 topic 数。骤变意味着归属发生了迁移。"
+  - id: consumers_count
+    promql: 'sum(pulsar_consumers_count{{.selector}})'
+    unit: consumers
+    description:
+      en: "Connected consumers. A drop to zero on a topic with backlog explains the backlog exactly."
+      zh: "已连接的消费者数。在有积压的 topic 上降为 0，正好可以解释积压的成因。"
+  - id: producers_count
+    promql: 'sum(pulsar_producers_count{{.selector}})'
+    unit: producers
+    description:
+      en: "Connected producers."
+      zh: "已连接的生产者数。"
+  - id: broker_load
+    promql: 'max(pulsar_lb_bandwidth_out_usage{{.selector}})'
+    unit: ratio
+    description:
+      en: "Broker outbound bandwidth utilisation as the load manager sees it."
+      zh: "负载管理器视角下 broker 的出向带宽使用率。"
+  - id: ml_entries_added
+    promql: 'sum(rate(pulsar_ml_AddEntryMessagesRate{{.selector}}[5m]))'
+    unit: entries/s
+    description:
+      en: "Managed-ledger entries written per second, the layer between the broker and BookKeeper."
+      zh: "managed ledger 每秒写入的条目数 —— 它是 broker 与 BookKeeper 之间的那一层。"
+
+logPatterns:
+  - id: bookie_read_only
+    regex: '(Transitioning Bookie to ReadOnly mode|bookie is readonly)'
+    severity: critical
+    meaning:
+      en: "A bookie ran out of disk and turned itself read-only. Writes now depend on the remaining bookies meeting the write quorum."
+      zh: "某个 bookie 磁盘耗尽并将自己转为只读。此后写入取决于剩余 bookie 能否满足写入 quorum。"
+  - id: not_enough_bookies
+    regex: '(NotEnoughBookiesException|Not enough non-faulty bookies)'
+    severity: critical
+    meaning:
+      en: "There are not enough writable bookies to satisfy the ensemble. Writes to affected topics fail outright."
+      zh: "可写 bookie 数量不足以组成 ensemble。受影响 topic 的写入会直接失败。"
+  - id: ledger_write_failed
+    regex: '(Failed to write ledger|Error writing entry|LedgerHandle.*error)'
+    severity: critical
+    meaning:
+      en: "A ledger write failed. Pulsar will close the ledger and open a new one, which is disruptive but not data loss."
+      zh: "某次 ledger 写入失败。Pulsar 会关闭该 ledger 并新建一个 —— 这有破坏性但不会丢数据。"
+  - id: ownership_change
+    regex: '(Acquired ownership|Released ownership|Namespace bundle.*unloaded)'
+    severity: major
+    meaning:
+      en: "Topic ownership moved between brokers. Clients reconnect, and a burst of these means the load manager is thrashing."
+      zh: "topic 归属在 broker 之间发生了迁移。客户端会重连；这类日志集中出现意味着负载管理器在反复抖动。"
+  - id: consumer_disconnect
+    regex: '(Consumer.*disconnected|Closed consumer)'
+    severity: major
+    meaning:
+      en: "A consumer left. On a subscription with backlog this is usually the cause, not a symptom."
+      zh: "某个消费者断开。在有积压的订阅上，这通常是原因而不是症状。"
+  - id: backlog_quota
+    regex: '(Backlog quota exceeded|backlog quota exceeded)'
+    severity: critical
+    meaning:
+      en: "The backlog quota was hit. Depending on policy Pulsar now either rejects producers or discards the oldest messages."
+      zh: "已触及积压配额。根据策略，Pulsar 此后要么拒绝生产者，要么丢弃最旧的消息。"
+  - id: zk_session
+    regex: '(Session expired|ZooKeeper session|MetadataStoreException)'
+    severity: critical
+    meaning:
+      en: "The broker lost its metadata session. Topic ownership will be reassigned while it recovers."
+      zh: "broker 丢失了元数据会话。在它恢复期间，topic 归属会被重新分配。"
+  - id: topic_unavailable
+    regex: '(Topic.*not found|ServiceUnitNotReadyException|Failed to load topic)'
+    severity: critical
+    meaning:
+      en: "A topic could not be loaded. Producers and consumers for it are stalled until it can be."
+      zh: "某个 topic 无法加载。在加载成功前，其生产者与消费者都处于停滞状态。"
+  - id: broker_restart
+    regex: 'PulsarService started'
+    severity: info
+    meaning:
+      en: "The broker started. Seeing this inside the incident window means it restarted."
+      zh: "broker 已启动。若这行出现在故障时间窗内，说明它发生过重启。"
+  - id: gc_pause
+    regex: '(Detected long GC|Total time for which application threads were stopped: [1-9])'
+    severity: major
+    meaning:
+      en: "A long JVM pause. During it the broker misses heartbeats, which can cost it topic ownership."
+      zh: "一次较长的 JVM 停顿。在此期间 broker 会漏掉心跳，可能因此丢失 topic 归属。"
+
+failureModes:
+  - id: subscription-backlog
+    severity: major
+    title:
+      en: "Subscription backlog growing"
+      zh: "订阅积压持续增长"
+    explanation:
+      en: "A subscription is acknowledging more slowly than producers write. Backlog is stored, so it consumes disk on the bookies as well as delaying delivery — and once the backlog quota is reached, Pulsar either blocks producers or discards messages, depending on policy."
+      zh: "某个订阅的确认速度慢于生产者的写入速度。积压是要落盘的，因此它既延迟投递、又消耗 bookie 的磁盘 —— 而一旦触及积压配额，Pulsar 会根据策略要么阻塞生产者、要么丢弃消息。"
+    symptoms: ["backlog", "lag", "consumer", "slow", "积压", "消费"]
+    indicators: ["backlog_total rising", "msg_rate_out below msg_rate_in", "consumers_count", "backlog_quota in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check the consumer count on the affected subscription first: a backlog with zero consumers has an obvious cause."
+          zh: "先检查受影响订阅上的消费者数量：零消费者的积压，原因是显而易见的。"
+      - risk: low
+        statement:
+          en: "Compare the dispatch rate against the publish rate to tell a stalled consumer from one that is merely behind."
+          zh: "把派发速率与发布速率放在一起比较，以区分“消费者卡死”与“只是落后”。"
+      - risk: medium
+        statement:
+          en: "Check the backlog quota policy before the quota is reached: it decides whether producers block or messages are discarded."
+          zh: "在触及配额之前先确认积压配额策略：它决定的是阻塞生产者还是丢弃消息。"
+
+  - id: bookie-storage-pressure
+    severity: critical
+    title:
+      en: "Bookie disk pressure"
+      zh: "bookie 磁盘压力"
+    explanation:
+      en: "A bookie's ledger directory is filling. BookKeeper turns a bookie read-only rather than let it fill the disk, which protects the data but removes write capacity from the cluster — and if too few writable bookies remain, writes fail outright."
+      zh: "某个 bookie 的 ledger 目录正在被写满。BookKeeper 会把它转为只读，而不是任其写满磁盘 —— 这保护了数据，但也从集群中移走了写入能力；若可写 bookie 太少，写入会直接失败。"
+    symptoms: ["disk", "storage", "write", "readonly", "磁盘", "存储", "只读"]
+    indicators: ["bookie_ledger_dir_usage high", "bookie_writable dropping", "bookie_read_only in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check whether the growth is backlog rather than retention: an unacknowledged backlog cannot be trimmed by retention policy."
+          zh: "确认增长来自积压还是保留策略：未确认的积压是无法被保留策略清理掉的。"
+      - risk: medium
+        statement:
+          en: "Count the remaining writable bookies against the write quorum before treating this as a single-bookie problem."
+          zh: "在把这当作单个 bookie 的问题处理之前，先把剩余可写 bookie 数与写入 quorum 对照一下。"
+
+  - id: ledger-write-failure
+    severity: critical
+    title:
+      en: "Ledger writes failing"
+      zh: "ledger 写入失败"
+    explanation:
+      en: "Writes to BookKeeper are failing, usually because too few non-faulty bookies remain to form an ensemble. Producers see errors immediately; this is not a slow path but a broken one."
+      zh: "对 BookKeeper 的写入正在失败，通常是因为可用的非故障 bookie 不足以组成 ensemble。生产者会立刻收到错误 —— 这不是“变慢”，而是“断了”。"
+    symptoms: ["write error", "produce", "ledger", "bookie", "写入失败", "生产"]
+    indicators: ["not_enough_bookies in logs", "ledger_write_failed in logs", "bookie_writable"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Establish how many bookies are writable and compare with the ensemble and write-quorum settings."
+          zh: "先弄清有多少 bookie 可写，再与 ensemble 和写入 quorum 设置对照。"
+      - risk: high
+        statement:
+          en: "Lowering the write quorum restores availability by weakening the durability guarantee; record it if you do it under pressure."
+          zh: "降低写入 quorum 会以削弱持久性保证为代价恢复可用性；若在压力下这样做，请记录下来。"
+
+  - id: broker-overload
+    severity: major
+    title:
+      en: "Broker overloaded"
+      zh: "broker 过载"
+    explanation:
+      en: "A broker is at its bandwidth or connection limits and the load manager is moving topics away from it. Ownership changes disconnect clients, so an overloaded broker produces visible client errors even when nothing has failed."
+      zh: "某个 broker 已达带宽或连接上限，负载管理器正在把 topic 从它身上迁走。归属变更会断开客户端连接，因此即便没有任何东西真正故障，过载的 broker 也会造成可见的客户端报错。"
+    symptoms: ["latency", "load", "slow", "reconnect", "时延", "负载", "重连"]
+    indicators: ["broker_load high", "ownership_change in logs", "publish_latency_p99 rising"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Count ownership changes in the window: a burst means the load manager is thrashing rather than balancing."
+          zh: "统计时间窗内的归属变更次数：集中出现意味着负载管理器在抖动，而不是在均衡。"
+      - risk: low
+        statement:
+          en: "Check for long GC pauses before adding brokers; a paused broker looks identical to an overloaded one."
+          zh: "在增加 broker 之前先检查是否有长 GC 停顿；停顿中的 broker 与过载的 broker 看起来一模一样。"
+
+  - id: topic-unavailable
+    severity: critical
+    title:
+      en: "Topic cannot be loaded"
+      zh: "topic 无法加载"
+    explanation:
+      en: "A topic or namespace bundle could not be assigned to a broker. Producers and consumers for it are stalled entirely. The cause is usually the metadata store rather than the topic itself."
+      zh: "某个 topic 或 namespace bundle 无法被分配给 broker。其生产者与消费者完全停滞。原因通常在元数据存储，而不在 topic 本身。"
+    symptoms: ["unavailable", "not found", "outage", "topic", "不可用", "中断"]
+    indicators: ["topic_unavailable in logs", "zk_session in logs", "topics_count changing"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check the metadata store session first: a broker that lost ZooKeeper cannot own any topic, however healthy it looks."
+          zh: "先检查元数据存储会话：丢失 ZooKeeper 的 broker 无法拥有任何 topic，无论它自身看起来多健康。"
+
+  - id: consumer-stall
+    severity: major
+    title:
+      en: "Consumers disconnected or stalled"
+      zh: "消费者断开或停滞"
+    explanation:
+      en: "Consumers have left a subscription or stopped acknowledging. The backlog that follows is a consequence, not the cause, and scaling the cluster will not clear it."
+      zh: "消费者已离开某个订阅，或停止了确认。随之而来的积压是结果而非原因，扩容集群并不能把它清掉。"
+    symptoms: ["consumer", "stall", "backlog", "disconnect", "消费者", "停滞", "断开"]
+    indicators: ["consumers_count dropping", "consumer_disconnect in logs", "msg_rate_out at zero"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Confirm whether the consumers left or merely stopped acknowledging; the two have different causes and different fixes."
+          zh: "确认消费者是真的离开了，还是只是停止了确认；两者原因不同，处理方式也不同。"
+
+playbooks:
+  - id: pulsar.cluster-health
+    title:
+      en: "Broker and bookie health"
+      zh: "broker 与 bookie 健康度"
+    description:
+      en: "Runs on every Pulsar diagnosis: is the broker scraped, are the bookies writable, and did topic ownership move?"
+      zh: "每次 Pulsar 诊断都会运行：broker 是否可被抓取、bookie 是否可写、topic 归属是否发生过迁移？"
+    steps:
+      - id: collect-up
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:up}}" }
+          as: up
+      - id: collect-writable
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:bookie_writable}}" }
+          as: writable
+      - id: collect-topics
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:topics_count}}" }
+          as: topics
+      - id: eval-down
+        evaluate: "up.empty or up.latest < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The broker could not be scraped during the window."
+              zh: "在该时间窗内无法抓取到该 broker。"
+            detail:
+              en: "Everything downstream of this is unreliable until it is resolved."
+              zh: "在此问题解决前，其下游的一切判断都不可靠。"
+        onFalse:
+          pass:
+            en: "The broker was reachable throughout the window."
+            zh: "在整个时间窗内 broker 保持可达。"
+      - id: eval-readonly
+        evaluate: "not writable.empty and writable.latestMin < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "At least one bookie is read-only."
+              zh: "至少有一个 bookie 处于只读状态。"
+            detail:
+              en: "A read-only bookie still serves reads but contributes no write capacity, and writes fail once too few remain."
+              zh: "只读 bookie 仍可提供读服务，但不再贡献写入能力；一旦可写 bookie 太少，写入就会失败。"
+        onFalse:
+          pass:
+            en: "Every bookie reported writable."
+            zh: "所有 bookie 均报告可写。"
+      - id: eval-ownership
+        evaluate: "not topics.empty and topics.min < topics.max"
+        onTrue:
+          finding:
+            severity: minor
+            confidence: 0.6
+            statement:
+              en: "The number of topics owned by this broker changed during the window."
+              zh: "该 broker 拥有的 topic 数量在时间窗内发生了变化。"
+            detail:
+              en: "Ownership changes disconnect clients, so they produce client-visible errors even when nothing failed."
+              zh: "归属变更会断开客户端连接，因此即便没有任何东西故障，也会产生客户端可见的错误。"
+      - id: conclude-storage
+        conclude: { failureMode: bookie-storage-pressure, when: "not writable.empty and writable.latestMin < 1" }
+
+  - id: pulsar.backlog
+    title:
+      en: "Subscription backlog"
+      zh: "订阅积压"
+    matches: ["backlog", "lag", "consumer", "slow", "behind", "积压", "消费", "落后"]
+    description:
+      en: "Establishes whether a backlog is a slow consumer, an absent one, or a producer surge."
+      zh: "判断积压来自消费缓慢、消费者缺席，还是生产端突增。"
+    steps:
+      - id: collect-backlog
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:backlog_total}}" }
+          as: backlog
+      - id: collect-in
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:msg_rate_in}}" }
+          as: rate_in
+      - id: collect-out
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:msg_rate_out}}" }
+          as: rate_out
+      - id: collect-consumers
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:consumers_count}}" }
+          as: consumers
+      - id: eval-no-consumers
+        evaluate: "not consumers.empty and consumers.latest == 0 and not backlog.empty and backlog.latest > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "A subscription has a backlog and no connected consumers."
+              zh: "某个订阅存在积压，且没有已连接的消费者。"
+            detail:
+              en: "The backlog is a consequence of the missing consumers; nothing on the broker side will clear it."
+              zh: "积压是消费者缺席的结果；在 broker 侧做任何事都无法清掉它。"
+      - id: eval-growing
+        evaluate: "not backlog.empty and backlog.delta > 0 and backlog.latest > 1000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Subscription backlog grew across the window and is substantial."
+              zh: "订阅积压在时间窗内持续增长且规模可观。"
+            detail:
+              en: "Backlog is stored, so it consumes bookie disk as well as delaying delivery."
+              zh: "积压是要落盘的，因此它既延迟投递、又消耗 bookie 磁盘。"
+        onFalse:
+          pass:
+            en: "Subscription backlog is stable or shrinking."
+            zh: "订阅积压保持稳定或正在下降。"
+      - id: eval-dispatch-deficit
+        evaluate: "not rate_in.empty and not rate_out.empty and rate_out.avg < rate_in.avg * 0.9"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Dispatch rate is persistently below publish rate."
+              zh: "派发速率持续低于发布速率。"
+            detail:
+              en: "While this holds the backlog can only grow, whatever its current size."
+              zh: "只要这个关系成立，无论当前积压多大，它都只会继续增长。"
+      - id: conclude-backlog
+        conclude:
+          failureMode: subscription-backlog
+          when: "not backlog.empty and backlog.delta > 0 and backlog.latest > 1000"
+      - id: conclude-consumer
+        conclude:
+          failureMode: consumer-stall
+          when: "not consumers.empty and consumers.latest == 0 and not backlog.empty and backlog.latest > 0"
+
+  - id: pulsar.write-path
+    title:
+      en: "Write path and storage"
+      zh: "写入路径与存储"
+    matches: ["latency", "write", "produce", "disk", "timeout", "storage", "时延", "写入", "生产", "磁盘"]
+    description:
+      en: "Checks whether publish latency is explained by bookie disk latency, and whether storage is running out."
+      zh: "检查发布时延能否由 bookie 磁盘时延解释，以及存储是否即将耗尽。"
+    steps:
+      - id: collect-publish
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:publish_latency_p99}}" }
+          as: publish
+      - id: collect-bookie
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:bookie_write_latency}}" }
+          as: bookie
+      - id: collect-usage
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:bookie_ledger_dir_usage}}" }
+          as: usage
+      - id: eval-publish
+        evaluate: "not publish.empty and publish.max > 100"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Publish latency exceeded 100 ms."
+              zh: "发布时延超过 100 毫秒。"
+            detail:
+              en: "Pulsar acknowledges a publish only once BookKeeper has persisted it, so publish latency is disk latency."
+              zh: "Pulsar 只有在 BookKeeper 完成持久化后才确认发布，因此发布时延就是磁盘时延。"
+        onFalse:
+          pass:
+            en: "Publish latency is within normal bounds."
+            zh: "发布时延处于正常范围。"
+      - id: eval-bookie-latency
+        evaluate: "not bookie.empty and bookie.max > 50"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Bookie add-entry latency exceeded 50 ms."
+              zh: "bookie 的 add-entry 时延超过 50 毫秒。"
+            detail:
+              en: "This is the disk latency every Pulsar write waits on; publish latency follows it directly."
+              zh: "这正是每次 Pulsar 写入都要等待的磁盘时延；发布时延会直接随之变化。"
+      - id: eval-usage
+        evaluate: "not usage.empty and usage.max > 0.85"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "A bookie's ledger directory is more than 85% full."
+              zh: "某个 bookie 的 ledger 目录使用率超过 85%。"
+            detail:
+              en: "BookKeeper turns a bookie read-only rather than fill its disk, removing write capacity from the cluster."
+              zh: "BookKeeper 会把 bookie 转为只读而不是写满磁盘，这会从集群中移走写入能力。"
+        onFalse:
+          pass:
+            en: "Ledger directory usage is within normal bounds."
+            zh: "ledger 目录使用率处于正常范围。"
+      - id: conclude-overload
+        conclude: { failureMode: broker-overload, when: "not publish.empty and publish.max > 100" }
+      - id: conclude-storage
+        conclude: { failureMode: bookie-storage-pressure, when: "not usage.empty and usage.max > 0.85" }
+
+  - id: pulsar.availability
+    title:
+      en: "Topic and ledger availability"
+      zh: "topic 与 ledger 可用性"
+    matches: ["unavailable", "not found", "outage", "error", "failed", "不可用", "中断", "失败"]
+    description:
+      en: "Checks the log for the failures that make a topic unusable rather than merely slow."
+      zh: "在日志中查找那些让 topic 不可用（而非仅仅变慢）的故障。"
+    steps:
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 300 }
+          as: logs
+      - id: eval-not-enough-bookies
+        evaluate: "not logs.empty and countMatching(logs.lines, 'NotEnoughBookies|Not enough non-faulty bookies') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.95
+            statement:
+              en: "The cluster reported too few non-faulty bookies to form an ensemble."
+              zh: "集群报告可用的非故障 bookie 不足以组成 ensemble。"
+            detail:
+              en: "Writes to affected topics fail outright; this is a broken write path, not a slow one."
+              zh: "受影响 topic 的写入会直接失败；这是写入路径断了，而不是变慢了。"
+        onFalse:
+          pass:
+            en: "No bookie-shortage errors in the log."
+            zh: "日志中没有 bookie 数量不足的错误。"
+      - id: eval-topic-load
+        evaluate: "not logs.empty and countMatching(logs.lines, 'ServiceUnitNotReady|Failed to load topic') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "A topic could not be loaded during the window."
+              zh: "时间窗内有 topic 无法加载。"
+            detail:
+              en: "Producers and consumers for that topic are stalled entirely until it can be assigned."
+              zh: "在该 topic 被成功分配之前，其生产者与消费者完全停滞。"
+      - id: conclude-ledger
+        conclude:
+          failureMode: ledger-write-failure
+          when: "not logs.empty and countMatching(logs.lines, 'NotEnoughBookies|Failed to write ledger') > 0"
+      - id: conclude-topic
+        conclude:
+          failureMode: topic-unavailable
+          when: "not logs.empty and countMatching(logs.lines, 'ServiceUnitNotReady|Failed to load topic') > 0"
+
+inspect:
+  - id: broker-healthcheck
+    binary: pulsar-admin
+    args: ["--admin-url", "http://{{.host}}:{{.port}}", "brokers", "healthcheck"]
+    description:
+      en: "Broker health as the broker itself reports it — the cheapest liveness check."
+      zh: "broker 自我报告的健康状态 —— 最廉价的存活检查。"
+  - id: topics-stats
+    binary: pulsar-admin
+    args: ["--admin-url", "http://{{.host}}:{{.port}}", "topics", "stats"]
+    description:
+      en: "Per-topic rates, storage size, subscriptions and their backlogs."
+      zh: "按 topic 统计的速率、存储大小、订阅及其积压。"
+  - id: namespaces-list
+    binary: pulsar-admin
+    args: ["--admin-url", "http://{{.host}}:{{.port}}", "namespaces", "list"]
+    description:
+      en: "Namespaces in a tenant, to locate the affected topics."
+      zh: "某租户下的命名空间列表，用于定位受影响的 topic。"
+  - id: bookies-list
+    binary: pulsar-admin
+    args: ["--admin-url", "http://{{.host}}:{{.port}}", "bookies", "list-bookies"]
+    description:
+      en: "Registered bookies and their state, including which are read-only."
+      zh: "已注册的 bookie 及其状态，含哪些处于只读。"
+
+source:
+  repos: ["https://github.com/apache/pulsar"]

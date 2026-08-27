@@ -1,0 +1,488 @@
+// Package httpapi is the HTTP surface: the diagnosis API, health endpoints and
+// Prometheus self-metrics.
+//
+// Governs: specs/001-mvp-core/design-lld.md §2.16
+package httpapi
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/zlrrr/multi-agent-system-turbo/internal/core"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/obs"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/orchestrator"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/service"
+	"github.com/zlrrr/multi-agent-system-turbo/internal/version"
+	"github.com/zlrrr/multi-agent-system-turbo/pkg/errs"
+)
+
+// Server exposes a Service over HTTP.
+type Server struct {
+	svc     *service.Service
+	mux     *http.ServeMux
+	auth    *Authorizer
+	started time.Time
+
+	mu      sync.Mutex
+	running map[string]bool
+
+	// registered is what routes() actually registered, in order. Routes()
+	// returns it rather than a hand-written literal: the structural test that
+	// every route is guarded walked a copy, so a route added without also
+	// being added to the copy was invisible to the test that exists to catch
+	// exactly that (specs/012-web-console/design-lld.md §4).
+	registered []string
+}
+
+// New builds a server around a Service.
+//
+// It returns an error rather than a value alone because building the authorizer
+// resolves the configured token secrets, and a secret that cannot be resolved
+// must stop the server rather than silently leave a credential unusable.
+func New(svc *service.Service) (*Server, error) {
+	cfg := svc.Config()
+	auth, err := NewAuthorizer(cfg.Server, cfg.Run.Language, nil)
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{
+		svc: svc, mux: http.NewServeMux(), auth: auth,
+		started: time.Now(), running: map[string]bool{},
+	}
+	s.routes()
+	return s, nil
+}
+
+// Handler returns the router behind the authorizer, which is what tests
+// exercise — the same handler `Serve` mounts, so no test can accidentally
+// exercise an unguarded surface.
+func (s *Server) Handler() http.Handler { return s.auth.Wrap(s.mux) }
+
+// Routes lists the patterns the mux serves, for the structural test that every
+// one of them is either guarded or deliberately anonymous. It reports what was
+// registered rather than a list maintained beside the registrations.
+func (s *Server) Routes() []string { return s.registered }
+
+// route registers one pattern and records it, so Routes() cannot disagree with
+// the mux.
+func (s *Server) route(pattern string, h http.HandlerFunc) {
+	s.registered = append(s.registered, pattern)
+	s.mux.HandleFunc(pattern, h)
+}
+
+func (s *Server) routes() {
+	s.route("/api/v1/diagnoses", s.handleDiagnoses)
+	s.route("/api/v1/diagnoses/", s.handleDiagnosis)
+	s.route("/api/v1/targets", s.handleTargets)
+	s.route("/api/v1/topologies", s.handleTopologies)
+	s.route("/api/v1/packs", s.handlePacks)
+	s.route("/healthz", s.handleHealthz)
+	s.route("/readyz", s.handleReadyz)
+	s.route("/metrics", s.handleMetrics)
+	// The console is registered whether or not it is enabled: a disabled
+	// console answers with the reason and the key that changes it, which a
+	// missing route could not do.
+	s.route("/ui", s.handleConsoleRedirect)
+	s.route(consolePrefix, s.handleConsole)
+	s.route("/", s.handleIndex)
+}
+
+// errorBody is the wire form of a failure: always a code, so a client can react
+// programmatically rather than by matching on prose.
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Remedy  string `json:"remedy,omitempty"`
+}
+
+func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
+	body := writeCodedError(w, status, err, s.svc.Config().Run.Language)
+	obs.Log(r.Context()).Warn("request failed",
+		"path", r.URL.Path, "status", status, "code", body.Code)
+}
+
+// writeCodedError renders a failure as the wire form: always a code, so a
+// client can react programmatically rather than by matching on prose. It is
+// shared with the authorizer, which refuses requests before a handler — and
+// before a Server — is involved.
+func writeCodedError(w http.ResponseWriter, status int, err error, lang string) errorBody {
+	body := errorBody{Code: errs.CodeOf(err), Message: err.Error()}
+	if e, ok := errs.AsError(err); ok {
+		body.Code, body.Message, body.Remedy = e.Code(), e.Message(lang), e.Remedy(lang)
+	}
+	if body.Code == "" {
+		body.Code = "MAS-7003"
+	}
+	writeJSON(w, status, body)
+	return body
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
+// statusFor maps an error domain onto an HTTP status. A safety refusal is 403:
+// the request was understood and deliberately denied.
+func statusFor(err error) int {
+	code := errs.CodeOf(err)
+	switch errs.Domain(code) {
+	case "config":
+		if code == "MAS-1005" {
+			return http.StatusNotFound
+		}
+		return http.StatusBadRequest
+	case "safety":
+		return http.StatusForbidden
+	case "storage":
+		if code == "MAS-6001" {
+			return http.StatusNotFound
+		}
+		return http.StatusInternalServerError
+	case "orchestration":
+		if code == "MAS-3001" {
+			return http.StatusBadRequest
+		}
+		return http.StatusInternalServerError
+	case "llm", "collector":
+		return http.StatusBadGateway
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// diagnoseRequestBody is the public request shape. It uses a duration string
+// rather than timestamps for the common case, because that is what an operator
+// reaching for an API during an incident actually has.
+type diagnoseRequestBody struct {
+	Target   string            `json:"target"`
+	Symptom  string            `json:"symptom"`
+	Since    string            `json:"since,omitempty"`
+	From     *time.Time        `json:"from,omitempty"`
+	To       *time.Time        `json:"to,omitempty"`
+	Mode     string            `json:"mode,omitempty"`
+	Topology string            `json:"topology,omitempty"`
+	Language string            `json:"language,omitempty"`
+	Options  map[string]string `json:"options,omitempty"`
+}
+
+func (b diagnoseRequestBody) toCore() (core.DiagnoseRequest, error) {
+	req := core.DiagnoseRequest{
+		Target: b.Target, Symptom: b.Symptom, Mode: core.Mode(b.Mode),
+		Topology: b.Topology, Language: b.Language, Options: b.Options,
+	}
+	switch {
+	case b.From != nil && b.To != nil:
+		req.Window = core.Window{From: *b.From, To: *b.To}
+	case b.From != nil || b.To != nil:
+		return req, errs.New("MAS-7001", "from and to must be given together")
+	case b.Since != "":
+		d, err := time.ParseDuration(b.Since)
+		if err != nil || d <= 0 {
+			return req, errs.New("MAS-7001", "since must be a positive duration such as 1h")
+		}
+		now := time.Now().UTC()
+		req.Window = core.Window{From: now.Add(-d), To: now}
+	}
+	return req, nil
+}
+
+func (s *Server) handleDiagnoses(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.createDiagnosis(w, r)
+	case http.MethodGet:
+		s.listDiagnoses(w, r)
+	default:
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+	}
+}
+
+func (s *Server) createDiagnosis(w http.ResponseWriter, r *http.Request) {
+	var body diagnoseRequestBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		s.writeError(w, r, http.StatusBadRequest, errs.Wrap(err, "MAS-7001", "the body is not valid JSON"))
+		return
+	}
+	req, err := body.toCore()
+	if err != nil {
+		s.writeError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	// From the authenticated caller and from configuration, never from the
+	// body: a client-supplied principal or tenant is an attribution anyone can
+	// forge.
+	principal := PrincipalFrom(r.Context())
+	req.Principal = principal.Name
+	if !s.MayReach(principal, req.Target) {
+		s.refuseAsUnknown(w, r, principal.Name, req.Target)
+		return
+	}
+	req.Tenant = s.tenantFor(req.Target)
+	// Admission runs before anything is created, so a malformed request never
+	// leaves a half-formed run behind.
+	admitted, err := s.svc.Admit(req)
+	if err != nil {
+		s.writeError(w, r, statusFor(err), err)
+		return
+	}
+
+	if r.URL.Query().Get("wait") == "true" {
+		rep, err := s.svc.Diagnose(r.Context(), admitted)
+		if err != nil {
+			s.writeError(w, r, statusFor(err), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rep)
+		return
+	}
+
+	runID := service.NewRunID(time.Now())
+	s.mu.Lock()
+	s.running[runID] = true
+	s.mu.Unlock()
+
+	go func() {
+		// A detached run must not be cancelled when the client's request ends.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()),
+			admitted.Budget.MaxWall+2*time.Minute)
+		defer cancel()
+		rep, err := s.svc.Diagnose(ctx, admitted)
+		s.mu.Lock()
+		delete(s.running, runID)
+		s.mu.Unlock()
+		if err != nil {
+			obs.Log(ctx).Error("background diagnosis failed", "code", errs.CodeOf(err), "error", err.Error())
+			return
+		}
+		obs.Log(ctx).Info("background diagnosis complete", "run_id", rep.RunID)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "accepted",
+		"message": "the diagnosis is running; poll GET /api/v1/diagnoses to find it, or use ?wait=true",
+		"request": admitted,
+	})
+}
+
+func (s *Server) listDiagnoses(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	runs, err := s.svc.Runs(r.Context(), limit)
+	if err != nil {
+		s.writeError(w, r, statusFor(err), err)
+		return
+	}
+	runs = s.reachableRuns(PrincipalFrom(r.Context()), runs)
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "count": len(runs)})
+}
+
+func (s *Server) handleDiagnosis(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+		return
+	}
+	id := r.URL.Path[len("/api/v1/diagnoses/"):]
+	if id == "" {
+		s.writeError(w, r, http.StatusNotFound, errs.New("MAS-7404", "a run id is required"))
+		return
+	}
+	rec, err := s.svc.Run(r.Context(), id)
+	if err != nil {
+		s.writeError(w, r, statusFor(err), err)
+		return
+	}
+	principal := PrincipalFrom(r.Context())
+	if !s.mayReadRun(principal, rec) {
+		s.refuseAsUnknown(w, r, principal.Name, id)
+		return
+	}
+	if r.URL.Query().Get("steps") == "true" {
+		writeJSON(w, http.StatusOK, rec)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": rec.ID, "status": rec.Status, "started_at": rec.StartedAt,
+		"finished_at": rec.FinishedAt, "usage": rec.Usage, "versions": rec.Versions,
+		// Who asked belongs in the default projection, not behind ?steps=true:
+		// it is the first thing a cost or access review looks for.
+		"principal": rec.Principal,
+		"tenant":    rec.Tenant,
+		"report":    rec.Report,
+	})
+}
+
+func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+		return
+	}
+	targets := s.reachableTargets(PrincipalFrom(r.Context()), s.svc.Config().Targets)
+	writeJSON(w, http.StatusOK, map[string]any{"targets": targets})
+}
+
+func (s *Server) handleTopologies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+		return
+	}
+	// Descriptions render in the configured operator language; details carry both,
+	// so an integration can present either without a second request.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"topologies":   orchestrator.Names(),
+		"descriptions": orchestrator.Descriptions(s.svc.Config().Run.Language),
+		"details":      orchestrator.Details(),
+		"default":      s.svc.Config().Run.DefaultTopology,
+	})
+}
+
+func (s *Server) handlePacks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+		return
+	}
+	type packInfo struct {
+		ID           string `json:"id"`
+		Middleware   string `json:"middleware"`
+		Version      string `json:"version"`
+		VersionRange string `json:"version_range,omitempty"`
+		Signals      int    `json:"signals"`
+		LogPatterns  int    `json:"log_patterns"`
+		FailureModes int    `json:"failure_modes"`
+		Playbooks    int    `json:"playbooks"`
+	}
+	out := []packInfo{}
+	for _, p := range s.svc.Library().All() {
+		out = append(out, packInfo{
+			ID: p.ID(), Middleware: p.Metadata.Middleware, Version: p.Metadata.Version,
+			VersionRange: p.Metadata.VersionRange, Signals: len(p.Signals),
+			LogPatterns: len(p.LogPatterns), FailureModes: len(p.FailureModes), Playbooks: len(p.Playbooks),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"packs": out, "count": len(out)})
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok", "version": version.Get().Version,
+		"uptime_seconds": int(time.Since(s.started).Seconds()),
+	})
+}
+
+// handleReadyz reports readiness to serve, which is narrower than liveness: the
+// process is only ready once its knowledge and store are usable.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if s.svc.Library().Len() == 0 {
+		s.writeError(w, r, http.StatusServiceUnavailable, errs.New("MAS-5003", "(no packs loaded)"))
+		return
+	}
+	if _, err := s.svc.Runs(r.Context(), 1); err != nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, err)
+		return
+	}
+	s.mu.Lock()
+	inflight := len(s.running)
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ready", "packs": s.svc.Library().Len(), "in_flight": inflight,
+	})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	if err := s.svc.Metrics().WriteProm(w); err != nil {
+		obs.Log(r.Context()).Warn("metrics exposition failed", "error", err.Error())
+	}
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		s.writeError(w, r, http.StatusNotFound, errs.New("MAS-7404", r.URL.Path))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name": "mas-turbo", "version": version.Get().Version,
+		"description": "Read-only diagnostic multi-agent system for open-source middleware",
+		// The server's own presentation choice, which the index did not
+		// previously state. The console reads it to match the operator's
+		// configured language without asking them a second time
+		// (specs/012-web-console/design-lld.md §8).
+		"language": s.svc.Config().Run.Language,
+		"endpoints": []string{
+			"POST /api/v1/diagnoses", "GET /api/v1/diagnoses", "GET /api/v1/diagnoses/{id}",
+			"GET /api/v1/targets", "GET /api/v1/topologies", "GET /api/v1/packs",
+			"GET /healthz", "GET /readyz", "GET /metrics", "GET /ui/",
+		},
+	})
+}
+
+// Serve runs the HTTP server until the context is cancelled or the process is
+// signalled, then shuts down gracefully so an in-flight diagnosis can finish.
+func Serve(ctx context.Context, svc *service.Service) error {
+	cfg := svc.Config().Server
+	// Before the listener opens: a configuration that would expose an
+	// unauthenticated or plaintext-credentialled API off-host stops the
+	// process here, where someone is looking.
+	if err := Admit(cfg); err != nil {
+		return err
+	}
+	server, err := New(svc)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           server.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       cfg.ReadTimeout.D(),
+		WriteTimeout:      cfg.WriteTimeout.D(),
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		listen := srv.ListenAndServe
+		if cfg.TLS.Enabled() {
+			listen = func() error { return srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile) }
+		}
+		if err := listen(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- errs.Wrap(err, "MAS-7005", cfg.Addr, err.Error())
+		}
+		close(errCh)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return errs.Wrap(err, "MAS-7005", cfg.Addr, err.Error())
+		}
+		return nil
+	}
+}

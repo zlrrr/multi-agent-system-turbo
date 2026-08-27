@@ -1,0 +1,780 @@
+apiVersion: mas.turbo/v1
+kind: KnowledgePack
+metadata:
+  middleware: milvus
+  name: milvus-core
+  version: 1.0.0
+  versionRange: ">=2.2"
+
+# Milvus is a disaggregated system: a proxy fronts coordinators and worker nodes
+# (query, data, index), and it stores its metadata in etcd, its segments in object
+# storage and its write-ahead log in a message queue. Most Milvus incidents are
+# therefore reported by Milvus but caused by one of those three dependencies,
+# which is why the dependency signals sit alongside the vector-search ones rather
+# than in an appendix.
+#
+# Metric names follow the milvus_* Prometheus families exported by 2.2 and later.
+# Minor releases have added and renamed members of those families; a signal that
+# returns no series is recorded as a gap rather than read as zero.
+signals:
+  - id: up
+    promql: 'up{{.selector}}'
+    unit: bool
+    description:
+      en: "1 when Prometheus can scrape the Milvus component, 0 when it cannot."
+      zh: "Prometheus 能抓取到该 Milvus 组件时为 1，抓不到为 0。"
+  - id: search_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(milvus_proxy_sq_latency_bucket{{.selector}}[5m])) by (le, query_type))'
+    unit: milliseconds
+    description:
+      en: "End-to-end search and query latency as the proxy measures it — what the client actually experiences."
+      zh: "proxy 侧测得的端到端搜索/查询时延 —— 这正是客户端真实体验到的时延。"
+  - id: querynode_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(milvus_querynode_sq_req_latency_bucket{{.selector}}[5m])) by (le))'
+    unit: milliseconds
+    description:
+      en: "Time a query node spends executing a search request, excluding the wait to be picked up."
+      zh: "query node 执行搜索请求所花的时间，不含排队等待被取走的时间。"
+  - id: querynode_queue_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(milvus_querynode_sq_queue_latency_bucket{{.selector}}[5m])) by (le))'
+    unit: milliseconds
+    description:
+      en: "Time a request waits in the query node's queue. High queue time with low execution time means saturation, not slow work."
+      zh: "请求在 query node 队列中的等待时间。等待高而执行低，意味着是饱和，而不是单次计算慢。"
+  - id: request_failures
+    promql: 'sum(rate(milvus_proxy_req_count{{.selector}}[5m]))'
+    unit: requests/s
+    description:
+      en: "Proxy request rate. The status label separates successes from failures; a rise concentrated in failures is an outage, not load."
+      zh: "proxy 的请求速率。status 标签区分成功与失败；增长若集中在失败上，那是故障而不是负载。"
+  - id: search_qps
+    promql: 'sum(rate(milvus_proxy_search_vectors_count{{.selector}}[5m]))'
+    unit: vectors/s
+    description:
+      en: "Vectors searched per second. Latency without a matching rise here is degradation rather than load."
+      zh: "每秒检索的向量数。若时延升高而此值未同步升高，那是性能退化而非负载升高。"
+  - id: loaded_entities
+    promql: 'sum(milvus_querynode_entity_num{{.selector}})'
+    unit: entities
+    description:
+      en: "Entities resident on query nodes. A drop means segments were released, and searches over them will miss data."
+      zh: "驻留在 query node 上的实体数。下降意味着 segment 被释放，针对它们的检索会缺数据。"
+  - id: querynode_memory_ratio
+    promql: 'max(container_memory_working_set_bytes{{.selector}} / clamp_min(container_spec_memory_limit_bytes{{.selector}}, 1))'
+    unit: ratio
+    description:
+      en: "Query node memory against its limit. Milvus holds loaded segments and indexes in memory, so this is the resource that bounds a collection's size."
+      zh: "query node 内存占其上限的比例。Milvus 把已加载的 segment 与索引常驻内存，因此这是限制集合规模的那项资源。"
+  - id: compaction_tasks
+    promql: 'sum(milvus_datacoord_compaction_task_num{{.selector}})'
+    unit: tasks
+    description:
+      en: "Compaction tasks the data coordinator is tracking. Sustained growth means compaction is not keeping up with ingestion."
+      zh: "data coordinator 正在跟踪的 compaction 任务数。持续增长意味着 compaction 跟不上写入。"
+  - id: segment_num
+    promql: 'sum(milvus_datacoord_segment_num{{.selector}})'
+    unit: segments
+    description:
+      en: "Segments known to the data coordinator. Many small segments make every search fan out wider."
+      zh: "data coordinator 已知的 segment 数。大量小 segment 会让每次检索的扇出更宽。"
+  - id: index_task_failures
+    promql: 'sum(milvus_datacoord_index_task_count{{.selector}})'
+    unit: tasks
+    description:
+      en: "Index build tasks by state. Tasks accumulating in a failed state mean new data stays unindexed and is searched by brute force."
+      zh: "按状态统计的索引构建任务数。失败状态下的任务堆积，意味着新数据始终无索引，只能被暴力检索。"
+  - id: index_build_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(milvus_indexnode_build_index_latency_bucket{{.selector}}[5m])) by (le))'
+    unit: milliseconds
+    description:
+      en: "Time an index node takes to build one index. It bounds how quickly newly written data becomes efficiently searchable."
+      zh: "index node 构建一个索引所需的时间。它决定了新写入的数据多快能被高效检索。"
+  - id: querynode_tt_lag
+    promql: 'max(milvus_querynode_consume_tt_lag_ms{{.selector}})'
+    unit: milliseconds
+    description:
+      en: "How far a query node's consumed time-tick trails real time. This is the delay before a written entity becomes visible to search."
+      zh: "query node 已消费的 time tick 落后真实时间的幅度。它就是“写入的实体多久后才对检索可见”的延迟。"
+  - id: datanode_tt_lag
+    promql: 'max(milvus_datanode_consume_tt_lag_ms{{.selector}})'
+    unit: milliseconds
+    description:
+      en: "How far a data node trails the write-ahead log. Sustained lag delays flush, and Milvus denies writes once the delay crosses its quota threshold."
+      zh: "data node 落后于预写日志的幅度。持续滞后会拖慢 flush，一旦超过配额阈值 Milvus 会拒绝写入。"
+  - id: flush_ops
+    promql: 'sum(rate(milvus_datanode_flush_buffer_op_count{{.selector}}[5m]))'
+    unit: ops/s
+    description:
+      en: "Flush operations per second. Zero while data is being written means buffered data is not reaching object storage."
+      zh: "每秒 flush 操作数。在持续写入的同时该值为 0，说明缓冲的数据没有落到对象存储。"
+  - id: meta_op_failures
+    promql: 'sum(rate(milvus_meta_op_count{{.selector}}[5m]))'
+    unit: ops/s
+    description:
+      en: "etcd metadata operations by status. Milvus keeps every collection, segment and index record there; failures here disable coordination itself."
+      zh: "按状态统计的 etcd 元数据操作速率。Milvus 把集合、segment 与索引记录全部存在那里；此处失败会让协调本身失效。"
+  - id: storage_op_failures
+    promql: 'sum(rate(milvus_storage_op_count{{.selector}}[5m]))'
+    unit: ops/s
+    description:
+      en: "Object-storage operations by status. Every segment read and write goes through here."
+      zh: "按状态统计的对象存储操作速率。每一次 segment 的读写都要经过它。"
+  - id: storage_latency_p99
+    promql: 'histogram_quantile(0.99, sum(rate(milvus_storage_request_latency_bucket{{.selector}}[5m])) by (le))'
+    unit: milliseconds
+    description:
+      en: "Object-storage request latency. It sets a floor under segment load time, and therefore under collection load time."
+      zh: "对象存储请求时延。它决定了 segment 加载时间的下限，也就决定了集合加载时间的下限。"
+
+logPatterns:
+  - id: memory_quota_exhausted
+    regex: '(MemoryQuotaExhausted|memory quota exhausted|force deny writing)'
+    severity: critical
+    meaning:
+      en: "Milvus stopped accepting writes because a memory quota was reached. This is a protection acting, not a crash — but writes are rejected until it clears."
+      zh: "Milvus 因触及内存配额而停止接受写入。这是保护机制在生效而非崩溃 —— 但在其解除前写入会被拒绝。"
+  - id: disk_quota_exhausted
+    regex: '(DiskQuotaExhausted|disk quota exhausted)'
+    severity: critical
+    meaning:
+      en: "The configured disk quota for a collection or the cluster was reached, and writes are denied."
+      zh: "集合或集群配置的磁盘配额已被触及，写入被拒绝。"
+  - id: load_segment_failed
+    regex: '(fail to load segment|LoadSegments failed|failed to load segments)'
+    severity: critical
+    meaning:
+      en: "A query node could not load a segment. Searches covering it return incomplete results or fail outright."
+      zh: "query node 无法加载某个 segment。覆盖该 segment 的检索会返回不完整结果，或直接失败。"
+  - id: insufficient_memory_to_load
+    regex: '(insufficient memory|not enough memory to load|OutOfMemory|OOM)'
+    severity: critical
+    meaning:
+      en: "A node ran out of memory. In Milvus this usually happens while loading a collection, because loaded segments and indexes are resident."
+      zh: "某个节点内存耗尽。在 Milvus 中这通常发生在加载集合时，因为已加载的 segment 与索引是常驻内存的。"
+  - id: index_build_failed
+    regex: '(failed to build index|build index error|CreateIndex failed|IndexBuildFailed)'
+    severity: critical
+    meaning:
+      en: "An index build failed. The affected data stays searchable by brute force, which is correct but far slower."
+      zh: "索引构建失败。受影响的数据仍可被暴力检索 —— 结果正确，但慢得多。"
+  - id: compaction_failed
+    regex: '(compaction failed|fail to do compaction|compaction task failed)'
+    severity: major
+    meaning:
+      en: "A compaction task failed. Deleted entities are not reclaimed and small segments are not merged, so both storage and search cost keep rising."
+      zh: "某个 compaction 任务失败。已删除的实体不会被回收、小 segment 不会被合并，存储与检索开销都会持续上升。"
+  - id: tt_lag_warning
+    regex: '(tt lag exceeds threshold|time tick lag|timetick lag behind)'
+    severity: major
+    meaning:
+      en: "A component's time tick fell behind. Until it catches up, recently written data is not visible to search."
+      zh: "某组件的 time tick 落后。在追上之前，最近写入的数据对检索不可见。"
+  - id: etcd_unavailable
+    regex: '(etcdserver:|context deadline exceeded.*etcd|failed to connect to etcd|etcd.*unavailable)'
+    severity: critical
+    meaning:
+      en: "The metadata store was unreachable or slow. Milvus cannot create, load or release anything while this holds."
+      zh: "元数据存储不可达或变慢。在此期间 Milvus 无法创建、加载或释放任何对象。"
+  - id: object_storage_error
+    regex: '(minio|s3).*(error|failed|AccessDenied|NoSuchKey|SlowDown)'
+    severity: critical
+    meaning:
+      en: "An object-storage operation failed. Segment reads and writes both depend on it, so this affects search and ingestion alike."
+      zh: "对象存储操作失败。segment 的读与写都依赖它，因此检索与写入会同时受影响。"
+  - id: node_session_lost
+    regex: '(session.*(deleted|expired|disconnected)|node.*offline|remove node from)'
+    severity: major
+    meaning:
+      en: "A worker node left the cluster. Its segments must be reassigned and reloaded elsewhere before searches over them are complete again."
+      zh: "某个 worker 节点离开集群。其 segment 需在别处重新分配并加载，之后针对它们的检索才会重新完整。"
+  - id: rate_limited
+    regex: '(RateLimit|rate limit exceeded|request is rejected by grpc RateLimiter)'
+    severity: major
+    meaning:
+      en: "The quota centre rejected requests. Clients see errors that originate in Milvus's own back-pressure, not in their query."
+      zh: "配额中心拒绝了请求。客户端看到的错误来自 Milvus 自身的背压，而不是它们的查询本身。"
+
+failureModes:
+  - id: query-node-latency
+    severity: major
+    title:
+      en: "Search latency high on the query nodes"
+      zh: "query node 上的检索时延偏高"
+    explanation:
+      en: "Search requests are slow inside the query nodes rather than in transit. The decisive split is between execution time and queue time: execution time grows with the amount of data scanned — a missing index makes a search brute-force — while queue time grows with concurrency, which means the nodes are saturated and more of them would help."
+      zh: "检索请求慢在 query node 内部，而不是在链路上。关键的区分在于执行时间与排队时间：执行时间随扫描的数据量增长 —— 索引缺失会让检索退化为暴力搜索；而排队时间随并发增长 —— 那意味着节点已经饱和，增加节点才有用。"
+    symptoms: ["slow", "latency", "search", "query", "timeout", "慢", "时延", "检索", "查询", "超时"]
+    indicators: ["search_latency_p99 rising", "querynode_latency_p99 high", "querynode_queue_latency_p99 high", "segment_num"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Compare queue latency against execution latency before adding query nodes: only a queue-bound system gets faster from more nodes."
+          zh: "在增加 query node 之前，先比较排队时延与执行时延：只有受排队限制的系统才会因加节点而变快。"
+        rationale:
+          en: "Adding nodes to an execution-bound system spreads the same slow work more widely without making any single request faster."
+          zh: "对受执行时间限制的系统加节点，只是把同样慢的工作摊得更开，单个请求并不会更快。"
+      - risk: low
+        statement:
+          en: "Check whether the searched collection has a built index; an unindexed collection is searched by brute force and its latency scales with size."
+          zh: "确认被检索的集合是否已建好索引；无索引的集合只能被暴力检索，其时延随数据量线性增长。"
+      - risk: medium
+        statement:
+          en: "Review search parameters such as nprobe and ef against the recall the workload actually needs — they trade latency for recall directly."
+          zh: "结合业务真正需要的召回率，检查 nprobe、ef 之类的检索参数 —— 它们是在时延与召回之间直接做交换。"
+
+  - id: compaction-backlog
+    severity: major
+    title:
+      en: "Compaction falling behind ingestion"
+      zh: "compaction 落后于写入"
+    explanation:
+      en: "Compaction merges small segments and reclaims space from deleted entities. When it falls behind, both costs compound: every search fans out over more segments, and deleted data keeps occupying storage. The symptom is a slow rise in latency that no single query explains."
+      zh: "compaction 负责合并小 segment 并回收已删除实体占用的空间。一旦落后，两项开销会叠加：每次检索都要在更多 segment 上扇出，已删除的数据也继续占着存储。其表现是时延缓慢抬升，而没有任何单条查询能解释它。"
+    symptoms: ["compaction", "segment", "storage", "slow", "delete", "压缩", "合并", "存储", "删除"]
+    indicators: ["compaction_tasks rising", "segment_num rising", "compaction_failed in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Establish whether compaction is failing or merely queued: a failing task repeats forever, a queued one drains once ingestion pauses."
+          zh: "先弄清 compaction 是在失败还是仅仅在排队：失败的任务会永远重试，排队的任务在写入停歇后自会消化。"
+      - risk: low
+        statement:
+          en: "Check object-storage latency before treating this as a Milvus problem — compaction rewrites segments through it."
+          zh: "在把这当作 Milvus 自身的问题处理之前，先看对象存储时延 —— compaction 是通过它重写 segment 的。"
+      - risk: medium
+        statement:
+          en: "Consider whether the ingestion pattern produces many small segments; frequent small flushes create work that compaction then has to undo."
+          zh: "考虑写入模式是否在制造大量小 segment；频繁的小批量 flush 制造出的工作，最终都要由 compaction 来收拾。"
+
+  - id: index-build-failure
+    severity: critical
+    title:
+      en: "Index builds failing"
+      zh: "索引构建失败"
+    explanation:
+      en: "Index nodes cannot complete index builds. Milvus stays correct — unindexed segments are searched by brute force — so this failure hides behind a latency symptom rather than an error, and the collection quietly gets slower as more unindexed data accumulates."
+      zh: "index node 无法完成索引构建。Milvus 的结果依然正确 —— 未建索引的 segment 会被暴力检索 —— 因此这个故障藏在时延症状而非报错背后，随着未索引数据不断累积，集合会悄悄变慢。"
+    symptoms: ["index", "build", "slow", "failed", "索引", "构建", "失败", "变慢"]
+    indicators: ["index_task_failures", "index_build_latency_p99 high", "index_build_failed in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read the index node log for the failing build: the reason is usually memory or an index-type parameter, and the two need different responses."
+          zh: "查看 index node 上失败构建的日志：原因通常是内存或索引类型参数，二者的处理方式完全不同。"
+      - risk: low
+        statement:
+          en: "Confirm the collection's index state rather than its definition — an index can be defined and still have no built segments behind it."
+          zh: "确认集合的索引状态而不只是索引定义 —— 索引可以已定义，但背后没有任何已构建的 segment。"
+      - risk: medium
+        statement:
+          en: "Weigh index-node memory against the index type in use: graph indexes such as HNSW need substantially more memory to build than to serve."
+          zh: "结合所用索引类型评估 index node 的内存：HNSW 之类的图索引，构建时所需内存远高于服务时。"
+
+  - id: memory-pressure
+    severity: critical
+    title:
+      en: "Query node memory exhausted"
+      zh: "query node 内存耗尽"
+    explanation:
+      en: "Milvus keeps loaded segments and their indexes resident in memory, so a query node's memory is what bounds how much data can be searchable at once. When it runs out, the node either fails to load segments or is killed — and either way searches over the affected collection are incomplete rather than merely slow."
+      zh: "Milvus 把已加载的 segment 及其索引常驻内存，因此 query node 的内存决定了同一时刻可被检索的数据量上限。内存耗尽时，节点要么加载 segment 失败、要么被杀死 —— 无论哪种，针对受影响集合的检索都是“不完整”，而不只是“慢”。"
+    symptoms: ["memory", "oom", "load", "killed", "restart", "内存", "加载", "重启"]
+    indicators: ["querynode_memory_ratio high", "insufficient_memory_to_load in logs", "memory_quota_exhausted in logs", "loaded_entities dropping"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check which collections are loaded before looking at the query volume: memory is consumed by what is loaded, not by what is queried."
+          zh: "在关注查询量之前，先看有哪些集合处于加载状态：占用内存的是“被加载的数据”，而不是“被查询的数据”。"
+      - risk: medium
+        statement:
+          en: "Consider releasing collections that are loaded but not searched; they hold memory that the active collections need."
+          zh: "考虑释放那些已加载但并未被检索的集合；它们占着活跃集合所需的内存。"
+        rationale:
+          en: "Releasing a collection is reversible and takes effect immediately, which makes it the cheapest way to test whether memory is the binding constraint."
+          zh: "释放集合是可逆的且立即生效，因此这是验证“内存是否为瓶颈”最廉价的办法。"
+      - risk: medium
+        statement:
+          en: "Compare the memory limit against the collection's resident footprint — a limit below the footprint makes the load fail every time it is retried."
+          zh: "把内存上限与集合的常驻占用相比 —— 上限低于占用时，每一次重试加载都会失败。"
+
+  - id: flush-lag
+    severity: major
+    title:
+      en: "Written data not becoming visible"
+      zh: "写入的数据迟迟不可见"
+    explanation:
+      en: "Data nodes are trailing the write-ahead log, so recently written entities have not been flushed to object storage and are not yet visible to search. Beyond a threshold Milvus starts denying writes to stop the lag growing further, which turns a visibility delay into a write outage."
+      zh: "data node 落后于预写日志，最近写入的实体尚未 flush 到对象存储，因而对检索还不可见。超过阈值后，Milvus 会开始拒绝写入以阻止滞后继续扩大 —— 于是“可见性延迟”变成了“写入中断”。"
+    symptoms: ["flush", "visible", "insert", "write", "lag", "delay", "写入", "可见", "延迟", "滞后"]
+    indicators: ["datanode_tt_lag high", "querynode_tt_lag high", "flush_ops at zero", "tt_lag_warning in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Distinguish a visibility delay from a write failure: until the quota threshold is crossed, writes still succeed and only their visibility is late."
+          zh: "区分“可见性延迟”与“写入失败”：在触及配额阈值之前，写入仍会成功，只是可见得晚。"
+      - risk: low
+        statement:
+          en: "Check object-storage latency and the message queue together — a data node trails whichever of the two is slower."
+          zh: "同时检查对象存储时延与消息队列 —— data node 会被两者中较慢的那个拖住。"
+      - risk: medium
+        statement:
+          en: "Review the flush interval against the ingestion rate; a long interval trades visibility latency for fewer, larger segments."
+          zh: "结合写入速率检查 flush 间隔；较长的间隔是以可见性延迟换取更少、更大的 segment。"
+
+  - id: dependency-failure
+    severity: critical
+    title:
+      en: "A Milvus dependency is failing"
+      zh: "Milvus 的依赖组件故障"
+    explanation:
+      en: "Milvus depends on etcd for metadata, object storage for segments and a message queue for the write-ahead log. A failure in any of them surfaces as a Milvus error, so the reported symptom points at the wrong component. Confirming which dependency is degraded is what separates a five-minute fix from an hour of reading Milvus logs."
+      zh: "Milvus 依赖 etcd 存元数据、对象存储存 segment、消息队列做预写日志。其中任何一个出问题，都会以 Milvus 报错的形式出现，因此症状指向的组件是错的。确认到底是哪个依赖劣化，正是“五分钟修好”与“读一小时 Milvus 日志”之间的区别。"
+    symptoms: ["etcd", "minio", "s3", "storage", "unavailable", "error", "依赖", "对象存储", "不可用"]
+    indicators: ["meta_op_failures", "storage_op_failures", "storage_latency_p99 high", "etcd_unavailable in logs", "object_storage_error in logs"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Check etcd and object storage before any Milvus component: a Milvus error naming a dependency is usually accurate."
+          zh: "在排查任何 Milvus 组件之前，先检查 etcd 与对象存储：Milvus 报错中点名的依赖，通常是准确的。"
+      - risk: low
+        statement:
+          en: "Separate a slow dependency from an unavailable one — a slow one degrades latency everywhere, an unavailable one stops coordination outright."
+          zh: "区分依赖“变慢”与“不可用” —— 变慢会让各处时延一起劣化，不可用则会直接让协调停摆。"
+      - risk: medium
+        statement:
+          en: "Verify object-storage credentials and bucket policy when errors mention access rather than timeouts; those two causes look alike in Milvus logs."
+          zh: "当错误提到的是权限而非超时时，核对对象存储的凭据与桶策略；这两类原因在 Milvus 日志里长得很像。"
+
+  - id: collection-load-failure
+    severity: critical
+    title:
+      en: "Collection cannot be loaded"
+      zh: "集合无法加载"
+    explanation:
+      en: "A collection failed to load, so it is not searchable at all. Milvus reports this per segment, and the cause is either capacity (no query node has room) or availability (a segment's data cannot be read). The two are distinguishable from the log and lead to opposite responses."
+      zh: "某个集合加载失败，因而完全不可检索。Milvus 会按 segment 报告该错误，原因要么是容量（没有 query node 装得下）、要么是可用性（某个 segment 的数据读不出来）。二者可以从日志中区分，且处理方向完全相反。"
+    symptoms: ["load", "not loaded", "collection", "unavailable", "加载", "集合", "不可用"]
+    indicators: ["load_segment_failed in logs", "loaded_entities dropping", "node_session_lost in logs", "querynode_memory_ratio"]
+    recommendations:
+      - risk: low
+        statement:
+          en: "Read the load error itself before acting: 'insufficient memory' and 'failed to read' point at different components entirely."
+          zh: "先读加载错误本身再动手：“内存不足”与“读取失败”指向的是完全不同的组件。"
+      - risk: low
+        statement:
+          en: "Check whether a query node left the cluster during the window; its segments have to be reassigned before the load can complete."
+          zh: "检查时间窗内是否有 query node 离开集群；它的 segment 需要重新分配之后，加载才能完成。"
+
+playbooks:
+  - id: milvus.cluster-health
+    title:
+      en: "Component and dependency health"
+      zh: "组件与依赖健康度"
+    description:
+      en: "Runs on every Milvus diagnosis: is the component scraped, are its dependencies answering, and is it rejecting requests?"
+      zh: "每次 Milvus 诊断都会运行：组件是否可被抓取、依赖是否有响应、是否正在拒绝请求？"
+    steps:
+      - id: collect-up
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:up}}" }
+          as: up
+      - id: collect-meta
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:meta_op_failures}}" }
+          as: meta
+      - id: collect-storage
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:storage_latency_p99}}" }
+          as: storage
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 300 }
+          as: logs
+      - id: eval-down
+        evaluate: "up.empty or up.latest < 1"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The Milvus component could not be scraped during the window."
+              zh: "在该时间窗内无法抓取到该 Milvus 组件。"
+            detail:
+              en: "Everything downstream of this is unreliable until it is resolved."
+              zh: "在此问题解决前，其下游的一切判断都不可靠。"
+        onFalse:
+          pass:
+            en: "The Milvus component was reachable throughout the window."
+            zh: "在整个时间窗内该 Milvus 组件保持可达。"
+      - id: eval-etcd
+        evaluate: "not logs.empty and countMatching(logs.lines, 'etcdserver:|failed to connect to etcd') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "The metadata store reported errors during the window."
+              zh: "时间窗内元数据存储报告了错误。"
+            detail:
+              en: "Milvus cannot create, load or release anything while etcd is unavailable, whatever its own components report."
+              zh: "在 etcd 不可用期间，无论 Milvus 各组件自身报告什么，它都无法创建、加载或释放任何对象。"
+        onFalse:
+          pass:
+            en: "No metadata-store errors in the log."
+            zh: "日志中没有元数据存储的错误。"
+      - id: eval-storage
+        evaluate: "not storage.empty and storage.max > 1000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Object-storage request latency exceeded 1 s."
+              zh: "对象存储请求时延超过 1 秒。"
+            detail:
+              en: "Segment loads, flushes and compaction all wait on this, so it sets a floor under several unrelated-looking symptoms."
+              zh: "segment 加载、flush 与 compaction 都要等它，因此它是若干看似无关症状的共同下限。"
+        onFalse:
+          pass:
+            en: "Object-storage latency is within normal bounds."
+            zh: "对象存储时延处于正常范围。"
+      - id: eval-denied
+        evaluate: "not logs.empty and countMatching(logs.lines, 'quota exhausted|force deny writing|rate limit exceeded') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "Milvus denied writes or rate-limited requests during the window."
+              zh: "时间窗内 Milvus 拒绝过写入或对请求做了限流。"
+            detail:
+              en: "These are Milvus's own protections acting; the client-visible errors originate inside Milvus, not in the request."
+              zh: "这是 Milvus 自身的保护机制在生效；客户端看到的错误来自 Milvus 内部，而不是请求本身。"
+      - id: conclude-dependency
+        conclude:
+          failureMode: dependency-failure
+          when: "(not logs.empty and countMatching(logs.lines, 'etcdserver:|AccessDenied|NoSuchKey') > 0) or (not storage.empty and storage.max > 1000)"
+      - id: conclude-meta
+        conclude:
+          failureMode: dependency-failure
+          when: "not meta.empty and meta.latest > 0 and not logs.empty and countMatching(logs.lines, 'etcd') > 0"
+
+  - id: milvus.query-path
+    title:
+      en: "Search and query latency"
+      zh: "检索与查询时延"
+    matches: ["slow", "latency", "search", "query", "timeout", "p99", "慢", "时延", "检索", "查询", "超时"]
+    description:
+      en: "Separates a saturated query node from a slow one, and both from a collection that is being searched without an index."
+      zh: "区分 query node 是“饱和”还是“单次计算慢”，以及是否在对无索引的集合做检索。"
+    steps:
+      - id: collect-proxy
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:search_latency_p99}}" }
+          as: proxy
+      - id: collect-exec
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:querynode_latency_p99}}" }
+          as: exec
+      - id: collect-queue
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:querynode_queue_latency_p99}}" }
+          as: queue
+      - id: collect-qps
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:search_qps}}" }
+          as: qps
+      - id: collect-index
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:index_task_failures}}" }
+          as: index
+      - id: eval-latency
+        evaluate: "not proxy.empty and proxy.max > 500"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Client-visible search latency exceeded 500 ms."
+              zh: "客户端可见的检索时延超过 500 毫秒。"
+            detail:
+              en: "This is measured at the proxy, so it includes queueing, execution and the return path."
+              zh: "该指标在 proxy 侧测得，因此包含排队、执行与返回三段。"
+        onFalse:
+          pass:
+            en: "Client-visible search latency is within normal bounds."
+            zh: "客户端可见的检索时延处于正常范围。"
+      - id: eval-queue
+        evaluate: "not queue.empty and not exec.empty and queue.avg > exec.avg"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.8
+            statement:
+              en: "Requests spend longer queued on the query nodes than executing."
+              zh: "请求在 query node 上排队的时间长于执行时间。"
+            detail:
+              en: "That is saturation rather than slow work: the same requests would be fast on an idle node, and more nodes would help."
+              zh: "这是饱和而非计算慢：同样的请求在空闲节点上会很快，增加节点是有效的。"
+        onFalse:
+          pass:
+            en: "Query nodes are not queue-bound."
+            zh: "query node 未受排队限制。"
+      - id: eval-exec
+        evaluate: "not exec.empty and exec.max > 300"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.75
+            statement:
+              en: "Query-node execution time exceeded 300 ms."
+              zh: "query node 的执行时间超过 300 毫秒。"
+            detail:
+              en: "Execution time scales with the data scanned, so a missing or unbuilt index is the first thing to rule out."
+              zh: "执行时间随扫描的数据量增长，因此首先要排除的是索引缺失或未构建完成。"
+      - id: eval-load
+        evaluate: "not qps.empty and not proxy.empty and qps.delta <= 0 and proxy.delta > 0"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "Latency rose while the search rate did not."
+              zh: "检索速率没有上升，时延却上升了。"
+            detail:
+              en: "The system got slower at constant load, which points at the data or the index rather than at demand."
+              zh: "在负载不变的情况下系统变慢了，问题指向数据或索引，而不是需求。"
+      - id: conclude-latency
+        conclude:
+          failureMode: query-node-latency
+          when: "(not queue.empty and not exec.empty and queue.avg > exec.avg) or (not exec.empty and exec.max > 300)"
+      - id: conclude-index
+        conclude:
+          failureMode: index-build-failure
+          when: "not index.empty and index.latest > 0 and not exec.empty and exec.max > 300"
+
+  - id: milvus.data-path
+    title:
+      en: "Ingestion, flush and compaction"
+      zh: "写入、flush 与 compaction"
+    matches: ["insert", "write", "flush", "compaction", "visible", "segment", "index", "lag", "写入", "可见", "压缩", "索引", "滞后"]
+    description:
+      en: "Follows a written entity from the write-ahead log through flush and compaction to a built index, and reports where it stopped."
+      zh: "沿着一条写入的实体，从预写日志经 flush、compaction 直到索引构建完成，报告它停在了哪一步。"
+    steps:
+      - id: collect-dn-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:datanode_tt_lag}}" }
+          as: dnlag
+      - id: collect-qn-lag
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:querynode_tt_lag}}" }
+          as: qnlag
+      - id: collect-flush
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:flush_ops}}" }
+          as: flush
+      - id: collect-compaction
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:compaction_tasks}}" }
+          as: compaction
+      - id: collect-segments
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:segment_num}}" }
+          as: segments
+      - id: collect-index-latency
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:index_build_latency_p99}}" }
+          as: buildms
+      - id: eval-tt-lag
+        evaluate: "(not dnlag.empty and dnlag.max > 30000) or (not qnlag.empty and qnlag.max > 30000)"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.85
+            statement:
+              en: "Time-tick lag exceeded 30 s."
+              zh: "time tick 滞后超过 30 秒。"
+            detail:
+              en: "Entities written during the lag are not visible to search yet, and past the quota threshold Milvus starts denying writes."
+              zh: "滞后期间写入的实体对检索尚不可见；一旦越过配额阈值，Milvus 会开始拒绝写入。"
+        onFalse:
+          pass:
+            en: "Time-tick lag is within normal bounds."
+            zh: "time tick 滞后处于正常范围。"
+      - id: eval-flush-stalled
+        evaluate: "not flush.empty and flush.sum == 0 and not dnlag.empty and dnlag.max > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.8
+            statement:
+              en: "No flush operations completed while the data nodes were behind."
+              zh: "在 data node 落后期间，没有任何 flush 操作完成。"
+            detail:
+              en: "Buffered data is not reaching object storage, so the lag can only grow."
+              zh: "缓冲的数据没有落到对象存储，滞后只会继续扩大。"
+      - id: eval-compaction
+        evaluate: "not compaction.empty and compaction.delta > 0 and compaction.latest > 10"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.75
+            statement:
+              en: "Compaction tasks accumulated across the window."
+              zh: "compaction 任务在时间窗内持续累积。"
+            detail:
+              en: "Every unmerged segment widens the fan-out of every subsequent search, so the cost is paid on the read path."
+              zh: "每一个未合并的 segment 都会扩大后续每次检索的扇出，这份代价是在读路径上付的。"
+        onFalse:
+          pass:
+            en: "Compaction is keeping up."
+            zh: "compaction 跟得上。"
+      - id: eval-segments
+        evaluate: "not segments.empty and segments.delta > 0 and segments.max > segments.min * 2"
+        onTrue:
+          finding:
+            severity: minor
+            confidence: 0.6
+            statement:
+              en: "The segment count more than doubled during the window."
+              zh: "时间窗内 segment 数量增长超过一倍。"
+            detail:
+              en: "Small-batch ingestion produces many small segments, which compaction then has to merge back."
+              zh: "小批量写入会产生大量小 segment，之后又要由 compaction 合并回去。"
+      - id: eval-build
+        evaluate: "not buildms.empty and buildms.max > 600000"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "A single index build took more than 10 minutes."
+              zh: "单次索引构建耗时超过 10 分钟。"
+            detail:
+              en: "Until a build finishes its segment is searched by brute force, so build time is search latency deferred."
+              zh: "在构建完成前，对应 segment 只能被暴力检索，因此构建时间就是被推迟的检索时延。"
+      - id: conclude-flush
+        conclude:
+          failureMode: flush-lag
+          when: "(not dnlag.empty and dnlag.max > 30000) or (not flush.empty and flush.sum == 0 and not dnlag.empty and dnlag.max > 0)"
+      - id: conclude-compaction
+        conclude:
+          failureMode: compaction-backlog
+          when: "not compaction.empty and compaction.delta > 0 and compaction.latest > 10"
+      - id: conclude-index
+        conclude:
+          failureMode: index-build-failure
+          when: "not buildms.empty and buildms.max > 600000"
+
+  - id: milvus.resources
+    title:
+      en: "Memory and collection load"
+      zh: "内存与集合加载"
+    matches: ["memory", "oom", "load", "killed", "restart", "collection", "内存", "加载", "重启", "集合"]
+    description:
+      en: "Checks whether the query nodes have room for what is loaded, and whether any load failed during the window."
+      zh: "检查 query node 是否装得下已加载的数据，以及时间窗内是否有加载失败。"
+    steps:
+      - id: collect-memory
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:querynode_memory_ratio}}" }
+          as: mem
+      - id: collect-entities
+        collect:
+          tool: promql.range
+          args: { query: "{{signal:loaded_entities}}" }
+          as: entities
+      - id: collect-logs
+        collect:
+          tool: loki.query
+          args: { query: "{{.selector}}", limit: 300 }
+          as: logs
+      - id: eval-memory
+        evaluate: "not mem.empty and mem.max > 0.85"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.85
+            statement:
+              en: "Query node memory exceeded 85% of its limit."
+              zh: "query node 内存超过其上限的 85%。"
+            detail:
+              en: "Loaded segments and indexes are resident, so this is the ceiling on how much data can be searchable at once."
+              zh: "已加载的 segment 与索引是常驻内存的，因此这就是“同一时刻可检索数据量”的天花板。"
+        onFalse:
+          pass:
+            en: "Query node memory is within normal bounds."
+            zh: "query node 内存处于正常范围。"
+      - id: eval-oom
+        evaluate: "not logs.empty and countMatching(logs.lines, 'insufficient memory|memory quota exhausted|OutOfMemory') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "A node reported that it ran out of memory."
+              zh: "有节点报告内存耗尽。"
+            detail:
+              en: "In Milvus this usually happens while loading a collection rather than while serving one."
+              zh: "在 Milvus 中，这通常发生在加载集合时，而不是在提供服务时。"
+        onFalse:
+          pass:
+            en: "No out-of-memory reports in the log."
+            zh: "日志中没有内存耗尽的报告。"
+      - id: eval-released
+        evaluate: "not entities.empty and entities.min < entities.max"
+        onTrue:
+          finding:
+            severity: major
+            confidence: 0.7
+            statement:
+              en: "The number of loaded entities dropped during the window."
+              zh: "时间窗内已加载的实体数发生过下降。"
+            detail:
+              en: "Searches issued while segments were unloaded returned incomplete results rather than an error."
+              zh: "在 segment 处于未加载状态时发出的检索，返回的是不完整的结果，而不是错误。"
+      - id: eval-load-failed
+        evaluate: "not logs.empty and countMatching(logs.lines, 'fail to load segment|LoadSegments failed') > 0"
+        onTrue:
+          finding:
+            severity: critical
+            confidence: 0.9
+            statement:
+              en: "A query node failed to load one or more segments."
+              zh: "有 query node 加载一个或多个 segment 失败。"
+            detail:
+              en: "The affected collection is not fully searchable until every segment loads."
+              zh: "在所有 segment 都加载成功之前，受影响的集合无法被完整检索。"
+      - id: conclude-memory
+        conclude:
+          failureMode: memory-pressure
+          when: "(not mem.empty and mem.max > 0.85) or (not logs.empty and countMatching(logs.lines, 'insufficient memory|memory quota exhausted') > 0)"
+      - id: conclude-load
+        conclude:
+          failureMode: collection-load-failure
+          when: "not logs.empty and countMatching(logs.lines, 'fail to load segment|LoadSegments failed') > 0"
+
+# No inspect commands ship for Milvus. Milvus has no read-only CLI in the guard's
+# allow-list, and widening the allow-list is a specification change this feature
+# did not request (design-lld.md §4). Metrics and logs cover the failure modes
+# above; the gap is recorded rather than papered over.
+
+source:
+  repos: ["https://github.com/milvus-io/milvus"]
