@@ -58,8 +58,16 @@ esac
 #    configuration's health, and the sample points at telemetry endpoints that
 #    are unreachable from a build runner — a warning that is correct and has
 #    nothing to say about whether the file parses.
+#
+#    The two absolute paths are redirected because the sample writes them for
+#    the container, where the image creates /var/lib/mas and gives it to uid
+#    65532. A packaging host is not that container and should not have to look
+#    like one; everything else about the file — syntax, unknown fields,
+#    validation — is still under test. (This is how CI found the check: it
+#    passed here as root and failed on a runner that cannot mkdir /var/lib.)
 [ -f "$root/mas.example.yaml" ] || fail "no example configuration in the package"
-"$root/mas" config --config "$root/mas.example.yaml" >/dev/null 2>&1 \
+MAS_STORE_DIR="$work/store" MAS_SOURCE_CACHE_DIR="$work/src" \
+  "$root/mas" config --config "$root/mas.example.yaml" >/dev/null 2>&1 \
   || fail "the shipped mas.example.yaml is not loadable by the shipped binary"
 
 # 5. Both languages, everywhere. Article III is not suspended at packaging time.
