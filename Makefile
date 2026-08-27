@@ -13,6 +13,7 @@ LDFLAGS     := -s -w \
   -X $(MODULE)/internal/version.Commit=$(COMMIT) \
   -X $(MODULE)/internal/version.BuildDate=$(BUILD_DATE)
 GO          ?= go
+PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 IMAGE       ?= mas-turbo
 IMAGE_TAG   ?= $(VERSION)
 
@@ -122,16 +123,52 @@ docker:
 demo: build
 	./scripts/demo.sh
 
-## dist: cross-compile release binaries with checksums
-dist:
+## dist: cross-compile release binaries, package them with the bilingual docs, and checksum everything
+# Packaging lives here rather than in the release workflow because a step that
+# only runs when a tag is pushed is a step nobody has ever run. The first
+# attempt to cut v0.1.0 failed here, on a bug that had been present since the
+# workflow was written: the docs were flattened into one directory, where
+# `docs/en/user-manual.md` and `docs/zh/user-manual.md` collide. In a Makefile
+# target, `make ci` runs it on every push instead.
+dist: dist-binaries dist-package dist-verify
+
+dist-binaries:
 	@mkdir -p $(DIST_DIR)
-	@for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+	@for platform in $(PLATFORMS); do \
 	  os=$${platform%/*}; arch=$${platform#*/}; \
 	  echo "building $$os/$$arch"; \
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
 	    -o $(DIST_DIR)/mas-$$os-$$arch ./cmd/mas || exit 1; \
 	done
-	@cd $(DIST_DIR) && sha256sum mas-* > SHA256SUMS
+
+## dist-package: wrap each cross-compiled binary with the licence, both READMEs and the bilingual docs
+# SHA256SUMS covers the tarballs and nothing else, because the tarballs are what
+# the release publishes. It previously also listed the bare cross-compiled
+# binaries, which are intermediates and never uploaded — so `sha256sum -c
+# SHA256SUMS` against a downloaded release would have failed on four missing
+# files. A checksum file that cannot be checked is worse than none.
+dist-package:
+	@set -e; cd $(DIST_DIR); rm -rf pkg; \
+	for platform in $(PLATFORMS); do \
+	  os=$${platform%/*}; arch=$${platform#*/}; \
+	  slug="$$os-$$arch"; \
+	  root="pkg/mas-$(VERSION)-$$slug"; \
+	  mkdir -p "$$root/docs"; \
+	  cp "mas-$$slug" "$$root/mas"; \
+	  cp ../LICENSE ../README.md ../README.zh.md "$$root/"; \
+	  cp ../deploy/config/mas.example.yaml "$$root/"; \
+	  cp -R ../docs/en ../docs/zh "$$root/docs/"; \
+	  tar -czf "mas-$$slug.tar.gz" -C pkg "mas-$(VERSION)-$$slug"; \
+	  echo "packaged mas-$$slug.tar.gz"; \
+	done; \
+	rm -rf pkg; \
+	rm -f SHA256SUMS; \
+	sha256sum mas-*.tar.gz > SHA256SUMS; \
+	cat SHA256SUMS
+
+## dist-verify: assert the packaged artifacts are usable, not merely produced
+dist-verify:
+	./scripts/verify-dist.sh $(DIST_DIR) $(VERSION)
 
 ## clean: remove build outputs
 clean:
@@ -139,4 +176,5 @@ clean:
 
 .PHONY: help build fmt fmt-check vet lint console-check test test-race cover \
         test-foundation test-capability test-knowledge test-reasoning test-output test-surfaces \
-        eval eval-baseline sdd-verify errcodes-docs ci docker demo dist clean
+        eval eval-baseline sdd-verify errcodes-docs ci docker demo \
+        dist dist-binaries dist-package dist-verify clean

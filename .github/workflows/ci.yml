@@ -228,6 +228,29 @@ jobs:
             .demo/topology.*.json
           retention-days: 7
 
+  # Release packaging on every push, not only on a tag. It ran for the first
+  # time when v0.1.0 was cut, failed on a bug that had been there since it was
+  # written, and took the release with it. `make dist` is the same target the
+  # release workflow calls, so a defect surfaces here instead.
+  package:
+    name: Release packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: make dist
+        run: make dist VERSION=ci-${{ github.sha }}
+
+      - name: What a user would download
+        run: |
+          ls -la dist/
+          echo
+          tar -tzf dist/mas-linux-amd64.tar.gz
+
   image:
     name: Container image
     runs-on: ubuntu-latest

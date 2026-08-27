@@ -48,7 +48,11 @@ jobs:
           go test -race ./...
           go run ./cmd/sddctl verify
 
-      - name: Cross-compile
+      # Cross-compile, package and verify — all `make dist`, which `make ci` also
+      # runs on every push. Packaging used to be inline shell in this file,
+      # where it ran only on a tag: the first attempt to cut v0.1.0 discovered
+      # on the tag push that it had never worked.
+      - name: Cross-compile, package and verify
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -56,26 +60,6 @@ jobs:
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           make dist VERSION="$VERSION" COMMIT="$COMMIT" BUILD_DATE="$BUILD_DATE"
           ls -la dist/
-
-      - name: Package with the manual
-        run: |
-          cd dist
-          for bin in mas-*; do
-            case "$bin" in SHA256SUMS) continue ;; esac
-            platform="${bin#mas-}"
-            mkdir -p "pkg/$platform"
-            cp "$bin" "pkg/$platform/mas"
-            cp ../LICENSE ../README.md "pkg/$platform/"
-            mkdir -p "pkg/$platform/docs"
-            cp ../docs/en/user-manual.md ../docs/zh/user-manual.md \
-               ../docs/en/configuration.md ../docs/zh/configuration.md \
-               ../docs/en/error-codes.md ../docs/zh/error-codes.md "pkg/$platform/docs/"
-            cp ../deploy/config/mas.example.yaml "pkg/$platform/"
-            tar -czf "mas-${platform}.tar.gz" -C "pkg/$platform" .
-          done
-          rm -rf pkg
-          sha256sum mas-*.tar.gz mas-linux-* mas-darwin-* > SHA256SUMS
-          cat SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
