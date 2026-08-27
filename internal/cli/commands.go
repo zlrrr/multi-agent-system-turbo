@@ -170,6 +170,14 @@ Endpoints:
 			if addr != "" {
 				svc.Config().Server.Addr = addr
 			}
+			// Admission before the announcement, not after: a configuration
+			// that will be refused used to print "listening on …" and then
+			// refuse, which reads as a crash rather than as the deliberate
+			// stop it is. Serve checks this again — it is the gate, and this
+			// call is only about what the operator is told.
+			if err := httpapi.Admit(svc.Config().Server); err != nil {
+				return err
+			}
 			fmt.Fprintf(e.out, "listening on %s\n", svc.Config().Server.Addr)
 			if svc.Config().Server.UI.On() {
 				fmt.Fprintf(e.out, "web console at %s/ui/\n", svc.Config().Server.Addr)

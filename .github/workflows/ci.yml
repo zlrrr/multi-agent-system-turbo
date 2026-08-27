@@ -15,6 +15,9 @@ concurrency:
 
 env:
   GO_VERSION: "1.24"
+  # Pinned so CI and `make lint` run the same linter. `.golangci.yml` is in v2
+  # format and only a v2 binary can read it.
+  GOLANGCI_VERSION: "2.5.0"
 
 jobs:
   verify:
@@ -39,11 +42,17 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Installed rather than run through golangci-lint-action: that action's
+      # `version: latest` resolved to 1.64.8, which rejects `.golangci.yml`
+      # outright because the file is in v2 format ("additional properties
+      # 'version', 'formatters' not allowed"). Pinning the binary here makes CI
+      # run exactly the version a contributor runs locally, and a lint upgrade
+      # becomes one line in one place.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${{ env.GOLANGCI_VERSION }}
+
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+        run: golangci-lint run --timeout=5m ./...
 
       # The web console has no build step and no package manifest
       # (specs/012-web-console, NFR-001), so without this nothing would notice
@@ -257,22 +266,52 @@ jobs:
       # the shipped image, not the test binary, actually serves it.
       - name: The image must serve the web console
         run: |
-          docker run --rm -d --name mas-console -p 18080:8080 mas-turbo:ci \
-            serve --addr 0.0.0.0:8080
+          # Binding anything but loopback requires credentials and either TLS
+          # or a declared terminating proxy — the rule feature 009 enforces at
+          # startup, and the reason a bare `--addr 0.0.0.0:8080` here refuses
+          # with MAS-7010. This is the configuration a deployment behind an
+          # ingress actually writes.
+          mkdir -p /tmp/mas-ci
+          cat > /tmp/mas-ci/mas.yaml <<'YAML'
+          server:
+            addr: "0.0.0.0:8080"
+            auth:
+              tokens:
+                - name: ci
+                  token: "ci-token"
+                  scopes: [read]
+            tls:
+              terminated_by_proxy: true
+          YAML
+          docker run --rm -d --name mas-console -p 18080:8080 \
+            -v /tmp/mas-ci:/etc/mas:ro mas-turbo:ci serve
           for i in $(seq 1 30); do
             curl -sf -o /dev/null http://127.0.0.1:18080/healthz && break
             sleep 1
           done
+          if ! curl -sf -o /dev/null http://127.0.0.1:18080/healthz; then
+            echo "the container never became healthy; its log:"
+            docker logs mas-console || true
+            docker rm -f mas-console >/dev/null 2>&1 || true
+            exit 1
+          fi
           shell=$(curl -sf http://127.0.0.1:18080/ui/)
           strings=$(curl -sf 'http://127.0.0.1:18080/ui/strings.json?lang=zh')
           script=$(curl -sf http://127.0.0.1:18080/ui/app.js)
           csp=$(curl -sfD - -o /dev/null http://127.0.0.1:18080/ui/ | grep -i 'content-security-policy')
+          # The shell above was fetched with no credential. The API must not be.
+          # This runs while the container is still up: after `docker rm` a
+          # refused connection would make the check pass without proving
+          # anything.
+          guarded=ok
+          curl -sf -o /dev/null http://127.0.0.1:18080/api/v1/targets && guarded=open
           docker rm -f mas-console >/dev/null
           echo "$shell" | grep -q '<!DOCTYPE html>' || { echo "the shell was not served"; exit 1; }
           echo "$strings" | grep -q 'MAS-Turbo 控制台' || { echo "the string table was not served"; exit 1; }
           echo "$script" | grep -q 'textContent' || { echo "the script was not served"; exit 1; }
           echo "$csp" | grep -q "default-src 'none'" || { echo "no deny-by-default CSP"; exit 1; }
-          echo "the image serves the console"
+          [ "$guarded" = ok ] || { echo "the API answered without a credential"; exit 1; }
+          echo "the image serves the console, and its API still demands a credential"
 
       - name: Image size gate
         run: |
