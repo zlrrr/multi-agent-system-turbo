@@ -394,6 +394,7 @@ mas serve --addr :8080
 | GET | `/api/v1/packs` | Loaded knowledge packs |
 | GET | `/healthz` `/readyz` | Liveness and readiness |
 | GET | `/metrics` | Prometheus exposition of MAS-Turbo's own metrics |
+| GET | `/ui/` | The read-only web console (§10.3) |
 
 ```bash
 curl -s localhost:8080/api/v1/diagnoses?wait=true \
@@ -474,6 +475,45 @@ may see, and each run records the tenant it was for.
 
 `mas doctor` says whether tenancy is on and what each credential reaches; see
 [configuration](./configuration.md) for the rules in full.
+
+### The web console
+
+`mas serve` also serves a read-only console. Open it in a browser:
+
+```
+http://localhost:8080/ui/
+```
+
+Paste a token that holds the `read` scope and you get, for the runs your
+credential may see:
+
+- the run list, newest first, with status, target, symptom and topology;
+- a run in full — gaps first, then summary, hypotheses with their confidences
+  and reasoning, findings, evidence, advisory recommendations, and what the run
+  cost;
+- the step trace: every tool call, model call and rule evaluation, in order;
+- your targets, the loaded knowledge packs and the available topologies.
+
+It is the same data the API returns, because the console is a client of that
+API and has no data path of its own. Whatever your token may not see, the
+console does not see either.
+
+Three things worth knowing:
+
+- **It starts nothing.** Diagnoses are begun from the CLI or the API. Starting
+  one spends model tokens and reads production telemetry, and the `diagnose`
+  scope is not one a browser tab should hold.
+- **Your token stays in the tab.** It is held in `sessionStorage` and sent as a
+  bearer header — never in a URL, never in a cookie. Closing the tab ends it.
+  On a plaintext connection from a remote host the console warns you before
+  accepting it.
+- **It shows the uncertainty.** Gaps in the evidence are rendered above the
+  summary, refuted hypotheses stay in the list, every recommendation is marked
+  advisory, and a run whose models had no configured price is reported as
+  unpriced rather than as costing nothing.
+
+`server.ui.enabled: false` turns it off; `/ui/` then answers `MAS-7016` naming
+the key, and the API is unchanged. `mas doctor` reports which it is.
 
 ## 11. Auditing and replaying a run
 
@@ -625,9 +665,12 @@ switch someone deliberately set.
 
 Honest scope, so you can plan around it:
 
-- **A web UI** — CLI and API only for now.
 - **Rate limiting** — a run's budget bounds what one call can spend, but
   nothing bounds how many calls arrive.
+- **Per-tenant budgets** — tenancy partitions who may reach what, not how much
+  each may spend.
+- **Starting a diagnosis from the browser** — the console reads; the CLI and
+  the API write.
 
 ## 15. Getting help
 

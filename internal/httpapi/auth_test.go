@@ -132,14 +132,16 @@ func TestHealthEndpointsStayAnonymous(t *testing.T) {
 func TestEveryRouteIsGuarded(t *testing.T) {
 	s := newServerWith(t, withTokens)
 
-	anonymous := map[string]bool{"/healthz": true, "/readyz": true}
+	// The anonymous set is read from the package, not copied here: a test that
+	// keeps its own copy of the thing it is checking is a test that agrees with
+	// itself (specs/012-web-console/design-lld.md §4).
 	for _, route := range s.Routes() {
 		path := route
 		if strings.HasSuffix(path, "/") && path != "/" {
 			path += "sample"
 		}
 		w := request(t, s, http.MethodGet, path, "", nil)
-		if anonymous[route] {
+		if httpapi.IsAnonymous(path) {
 			if w.Code == http.StatusUnauthorized {
 				t.Errorf("%s is meant to be anonymous but demanded a credential", route)
 			}

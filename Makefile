@@ -46,6 +46,16 @@ lint:
 	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; \
 	else echo "golangci-lint not installed; falling back to go vet"; $(GO) vet ./...; fi
 
+## console-check: parse the web console's script when a JS engine is available
+# The console has no build step and no package manifest (feature 012, NFR-001),
+# so nothing would otherwise notice a syntax error before a reader's browser
+# did. `node --check` parses without executing; when node is absent this says so
+# and passes, the same shape as `lint` above.
+console-check:
+	@if command -v node >/dev/null 2>&1; then \
+	  node --check internal/httpapi/assets/app.js && echo "console script parses"; \
+	else echo "node not installed; skipping the console syntax check"; fi
+
 ## test: run the full test suite
 test:
 	$(GO) test ./...
@@ -101,7 +111,7 @@ errcodes-docs: build
 	$(BIN_DIR)/mas errcodes --format markdown --lang zh > docs/zh/error-codes.md
 
 ## ci: everything CI enforces
-ci: fmt-check vet lint test-race sdd-verify build eval
+ci: fmt-check vet lint console-check test-race sdd-verify build eval
 
 ## docker: build the container image
 docker:
@@ -127,6 +137,6 @@ dist:
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR) coverage.out
 
-.PHONY: help build fmt fmt-check vet lint test test-race cover \
+.PHONY: help build fmt fmt-check vet lint console-check test test-race cover \
         test-foundation test-capability test-knowledge test-reasoning test-output test-surfaces \
         eval eval-baseline sdd-verify errcodes-docs ci docker demo dist clean

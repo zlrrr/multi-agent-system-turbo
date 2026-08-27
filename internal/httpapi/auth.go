@@ -67,11 +67,33 @@ type Authorizer struct {
 }
 
 // anonymousRoutes answer without a credential. A liveness probe that needs one
-// is a liveness probe that fails during a credential problem, and neither
-// endpoint reveals anything about the estate.
+// is a liveness probe that fails during a credential problem, and none of these
+// reveals anything about the estate.
+//
+// The console entries are the shell only: HTML, CSS, JavaScript and a table of
+// UI labels. A browser navigating to a page cannot send an Authorization
+// header, so the alternative is a login endpoint minting a cookie — and with a
+// cookie come sessions, CSRF and a second authentication scheme. What is served
+// here discloses that MAS-Turbo is running, which `/healthz` already discloses.
+// Every byte of estate data the console shows crosses this authorizer through
+// the API (specs/012-web-console/design-hld.md §2).
 var anonymousRoutes = map[string]bool{
 	"/healthz": true,
 	"/readyz":  true,
+	"/ui":      true,
+	"/ui/":     true,
+}
+
+// IsAnonymous reports whether a path answers without a credential. It is
+// exported for the same reason ScopeFor is: the structural test that every
+// route is either guarded or deliberately anonymous must read this, not a copy
+// of it. The console matches by prefix because its assets are several paths
+// under one route; every other entry is exact.
+func IsAnonymous(path string) bool {
+	if anonymousRoutes[path] {
+		return true
+	}
+	return strings.HasPrefix(path, consolePrefix)
 }
 
 // routeScopes is exhaustive and deny-by-default: a path with no entry here is
@@ -119,7 +141,7 @@ func (a *Authorizer) Enabled() bool { return a.on }
 
 // ScopeFor returns the scope a request needs, and whether the route is known.
 func ScopeFor(r *http.Request) (Scope, bool) {
-	if anonymousRoutes[r.URL.Path] {
+	if IsAnonymous(r.URL.Path) {
 		return "", false
 	}
 	// Starting a diagnosis is the one write-shaped operation: it spends model
@@ -140,7 +162,7 @@ func ScopeFor(r *http.Request) (Scope, bool) {
 // Wrap puts every non-anonymous route behind the authorizer.
 func (a *Authorizer) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if anonymousRoutes[r.URL.Path] {
+		if IsAnonymous(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

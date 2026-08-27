@@ -130,6 +130,7 @@
 | `MAS-7013` | error | `APITokenScopeInvalid` | API token %q 不可用：%s | 每个 token 至少要声明一个 scope，且每个 scope 都必须是本版本认识的。一个被忽略的 scope，是一次你以为自己已经授出的授权。 |
 | `MAS-7014` | error | `APIScopeMissing` | 该凭据缺少此路由所需的 %q scope | 请在 `server.auth.tokens[].scopes` 下给该 token 加上这个 scope，或改用已具备该 scope 的 token 调用。 |
 | `MAS-7015` | warn | `APITenantDenied` | 凭据 %q 无权代表租户 %q | 这只出现在审计日志中。在网络响应上，该请求看起来就是一个未知目标 —— 因为确认另一个租户的目标存在，泄露的是邻居的信息，而不是调用者的。 |
+| `MAS-7016` | error | `ConsoleDisabled` | 当前配置下 Web 控制台已关闭 | 将 `server.ui.enabled` 设为 true 即可提供该控制台。无论开关如何，API 本身都不受影响。 |
 | `MAS-7404` | error | `NotFound` | 未找到：%s | 检查请求路径中的标识符。 |
 
 ## 安全守卫

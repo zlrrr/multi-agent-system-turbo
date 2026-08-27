@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.2.2 · **Status**: approved · **Date**: 2026-08-27
+> **Version**: 1.3.0 · **Status**: approved · **Date**: 2026-08-27
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -147,7 +147,7 @@ used by downstream specifications.
 | NG-3 | Being a metrics/log **store** | It queries existing observability stacks |
 | NG-4 | Replacing alerting or on-call paging | It is the analysis layer, not the notification layer |
 | NG-5 | Fine-tuning or hosting models | Provider-agnostic client only |
-| NG-6 | A web UI | CLI + HTTP API in this phase; UI is a later feature |
+| NG-6 | ~~A web UI~~ | **Lifted at v1.3.0.** Deferred while the API was half-built, because a console over a moving API is a console rebuilt three times. Delivered as a read-only client of that API (`specs/012-web-console`) — it renders diagnoses and starts nothing |
 
 ## 5. Prioritised backlog (industry practice: walking skeleton → depth → breadth)
 
@@ -206,7 +206,7 @@ disconnected parts.
 | P3-1 | AuthN/AuthZ on the HTTP API | — | Delivered (`specs/009-api-authentication`): bearer tokens with `read`/`diagnose` scopes, a refusal to bind off-host without them, and the principal recorded on the run |
 | P3-2 | Durable run store (beyond filesystem) | G1.4 | Delivered (`specs/010-object-run-store`): any S3-compatible bucket, shared by every replica, with each step an immutable object and an interrupted run still readable |
 | P3-3 | Multi-tenant target registry | — | Delivered (`specs/011-tenant-registry`): a tenant on a target and on a credential, enforced at one choke point, with a cross-tenant target refused as if it did not exist |
-| P3-4 | Web UI | NG-6 lifted | — |
+| P3-4 | Web UI | NG-6 lifted | Delivered (`specs/012-web-console`): a read-only console at `/ui/`, built from embedded assets with no new dependency and no build step, authorised by the existing bearer credential and rendering gaps, confidences and advisory status as first-class content |
 
 ## 6. Milestone exit criteria
 
@@ -215,7 +215,7 @@ disconnected parts.
 | **M1** | `make ci` green; container image runs `mas diagnose` end-to-end against a mock provider and a fixture telemetry stack; report produced; manual published; release workflow produces artifacts | **Met.** `make ci` green (format, vet, lint, race tests, SDD checks, build); `make demo` produces English and Chinese reports from stub telemetry with no credentials; a container running as uid 65532 completes a diagnosis and returns the documented exit codes; bilingual manual, configuration and error-code references published |
 | M2 | All six knowledge packs pass their pack-conformance tests **(met)**; Kubernetes in-container `exec` **(met, opt-out, same allow-list as the host)**; ≥4 topologies selectable **(met: five, all against one conformance contract)** | Source fallback already proven under simulated network failure (delivered in M1) |
 | M3 | Case corpus of ≥20 scenarios; topology comparison report reproducible by one command | **Met, and the milestone is complete.** `mas eval --matrix` runs 22 cases against all five topologies in about a second and gates on a recorded baseline. Mutation-tested in both directions and on both gates: widening a pack rule turns cells `WRONG`, narrowing one turns them `MISS`, and removing a version range turns the KRaft case red. Every ranked M3 item — P2-1 through P2-4 — is delivered |
-| M4 | API authenticated; run store pluggable; UI serving reports | **Two of three met.** The API authenticates and authorises per route, and refuses to bind off-host without credentials and TLS. The run store is pluggable and now has a shared, durable backend as well as the filesystem one. The UI is the remaining item |
+| M4 | API authenticated; run store pluggable; UI serving reports | **Met, and the milestone is complete.** The API authenticates and authorises per route, refuses to bind off-host without credentials and TLS, and partitions targets and runs by tenant. The run store is pluggable with a shared, durable S3-compatible backend beside the filesystem one. The console at `/ui/` serves reports as a client of that API, so scope and tenancy are enforced once rather than twice. Every ranked M4 item — P3-1 through P3-4 — is delivered |
 
 ## 7. Measures of success
 
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.3.0 | 2026-08-27 | **NG-6 lifted** and M4's P3-4 recorded as delivered, completing M4. The web UI was a non-goal for as long as the API it would sit on was still moving; with authentication, scopes, tenancy and a durable store in place, a console became a client of that API rather than a second implementation of it — which is why it adds no authorisation surface, no server-side data path and no module dependency | A deferred non-goal whose stated reason has expired; scope change logged rather than made silently | `specs/012-web-console/` |
 | 1.2.2 | 2026-08-27 | M4's P3-3 recorded as delivered, closing the gap feature 009 named when it shipped: a credential that may diagnose no longer reaches every target. Tenancy turns itself on from the configuration rather than a flag, so a partitioned deployment cannot run unpartitioned, and a single-team one never encounters it | Backlog reflects delivered scope; no goal changed | `specs/011-tenant-registry/` |
 | 1.2.1 | 2026-08-26 | M4's P3-2 recorded as delivered: run records can live in an S3-compatible bucket rather than one machine's disk, so replicas agree about history and a pod restart does not erase it. SigV4 is implemented from the specification and proven against its published vectors, keeping `go.mod` unchanged | Backlog reflects delivered scope; no goal changed | `specs/010-object-run-store/` |
 | 1.2.0 | 2026-08-26 | M4's P3-1 recorded as delivered: the API authenticates, authorises per route by scope, and records who asked on the run it caused. The requirement attaches to the bind address rather than a flag, so a loopback developer workflow is unchanged and an exposed one cannot be unauthenticated by omission | Backlog reflects delivered scope; no goal changed | `specs/009-api-authentication/` |

@@ -159,6 +159,7 @@ Endpoints:
   GET  /api/v1/targets              configured targets
   GET  /api/v1/topologies           available topologies
   GET  /api/v1/packs                loaded knowledge packs
+  GET  /ui/                         read-only web console
   GET  /healthz  /readyz  /metrics`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := e.load()
@@ -170,6 +171,9 @@ Endpoints:
 				svc.Config().Server.Addr = addr
 			}
 			fmt.Fprintf(e.out, "listening on %s\n", svc.Config().Server.Addr)
+			if svc.Config().Server.UI.On() {
+				fmt.Fprintf(e.out, "web console at %s/ui/\n", svc.Config().Server.Addr)
+			}
 			return httpapi.Serve(cmd.Context(), svc)
 		},
 	}

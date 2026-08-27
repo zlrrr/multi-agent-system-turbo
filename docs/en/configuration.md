@@ -324,6 +324,7 @@ could not file it away would be the wrong trade mid-incident.
 | `auth.tokens[]` | *(none)* | Bearer credentials the API accepts |
 | `tls.cert_file` / `tls.key_file` | *(none)* | Serve TLS from this pair |
 | `tls.terminated_by_proxy` | `false` | Something in front of this process terminates TLS |
+| `ui.enabled` | `true` | Serve the read-only web console at `/ui/` |
 
 ### The rule that attaches to the address
 
@@ -440,6 +441,44 @@ Deliberately not here: per-tenant models, budgets, packs or telemetry sources;
 tenant-scoped storage; hierarchies, groups or delegation; and quotas. Tenancy
 also does not apply to the CLI, which runs as the operator with the operator's
 own file — every target in it is already theirs.
+
+### `server.ui` — the web console
+
+`mas serve` serves a read-only web console at `/ui/`. It renders diagnoses:
+summary, hypotheses with their confidences, findings, evidence, gaps and
+advisory recommendations, plus the step trace, the target list and the loaded
+knowledge packs.
+
+```yaml
+server:
+  ui:
+    enabled: false   # a hardened deployment that wants no console
+```
+
+It is on by default, because a console you must discover a configuration key to
+enable is a console nobody uses. Turning it off makes `/ui/` answer `MAS-7016`
+with the key that turns it back on, rather than a bare `404` — that a console is
+switched off is not a fact worth withholding. The API is unaffected either way.
+
+**What it can do is exactly what the credential can do.** The console is a
+client of this API, not a second implementation of it: it holds no data path of
+its own, so scope and tenancy are enforced in one place rather than two. Every
+byte it displays came back from `/api/v1/…` under your token.
+
+**It is read-only twice over.** The system never writes to a target
+environment, and the console additionally cannot start a diagnosis: that spends
+model tokens and reads production telemetry, and the `diagnose` scope is not one
+a browser tab should hold. A `read` credential is what the console needs.
+
+**Using it.** Open `/ui/`, paste a token that holds `read`. The token is kept in
+the browser tab's `sessionStorage` and sent as `Authorization: Bearer` — never
+placed in a URL, never in a cookie. Closing the tab ends it. On a plaintext
+origin that is not loopback the console says so before accepting anything;
+`mas serve` already refuses that combination unless TLS is served or a
+terminating proxy is declared.
+
+The console follows `run.language`, and a reader can switch language for their
+own tab.
 
 ## `safety`
 

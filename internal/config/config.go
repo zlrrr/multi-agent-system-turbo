@@ -291,7 +291,21 @@ type ServerConfig struct {
 	WriteTimeout Duration   `yaml:"write_timeout" json:"write_timeout"`
 	Auth         ServerAuth `yaml:"auth" json:"auth"`
 	TLS          ServerTLS  `yaml:"tls" json:"tls"`
+	UI           UIConfig   `yaml:"ui" json:"ui"`
 }
+
+// UIConfig configures the read-only web console
+// (specs/012-web-console/design-lld.md §2).
+type UIConfig struct {
+	// Enabled defaults to true, which is why it is a pointer: a plain bool
+	// cannot tell "the operator wrote false" from "the operator wrote
+	// nothing", and here those must mean opposite things. Default() therefore
+	// leaves it nil — absence is the default — and On() is the only reader.
+	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+}
+
+// On reports whether the console is served.
+func (u UIConfig) On() bool { return u.Enabled == nil || *u.Enabled }
 
 // ServerAuth lists the credentials the API accepts. An empty list means the
 // API is unauthenticated, which `httpapi.Admit` permits only on a loopback

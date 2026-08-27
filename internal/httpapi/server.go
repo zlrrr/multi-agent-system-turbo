@@ -34,6 +34,13 @@ type Server struct {
 
 	mu      sync.Mutex
 	running map[string]bool
+
+	// registered is what routes() actually registered, in order. Routes()
+	// returns it rather than a hand-written literal: the structural test that
+	// every route is guarded walked a copy, so a route added without also
+	// being added to the copy was invisible to the test that exists to catch
+	// exactly that (specs/012-web-console/design-lld.md §4).
+	registered []string
 }
 
 // New builds a server around a Service.
@@ -61,25 +68,32 @@ func New(svc *service.Service) (*Server, error) {
 func (s *Server) Handler() http.Handler { return s.auth.Wrap(s.mux) }
 
 // Routes lists the patterns the mux serves, for the structural test that every
-// one of them is either guarded or deliberately anonymous.
-func (s *Server) Routes() []string {
-	return []string{
-		"/api/v1/diagnoses", "/api/v1/diagnoses/", "/api/v1/targets",
-		"/api/v1/topologies", "/api/v1/packs",
-		"/healthz", "/readyz", "/metrics", "/",
-	}
+// one of them is either guarded or deliberately anonymous. It reports what was
+// registered rather than a list maintained beside the registrations.
+func (s *Server) Routes() []string { return s.registered }
+
+// route registers one pattern and records it, so Routes() cannot disagree with
+// the mux.
+func (s *Server) route(pattern string, h http.HandlerFunc) {
+	s.registered = append(s.registered, pattern)
+	s.mux.HandleFunc(pattern, h)
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("/api/v1/diagnoses", s.handleDiagnoses)
-	s.mux.HandleFunc("/api/v1/diagnoses/", s.handleDiagnosis)
-	s.mux.HandleFunc("/api/v1/targets", s.handleTargets)
-	s.mux.HandleFunc("/api/v1/topologies", s.handleTopologies)
-	s.mux.HandleFunc("/api/v1/packs", s.handlePacks)
-	s.mux.HandleFunc("/healthz", s.handleHealthz)
-	s.mux.HandleFunc("/readyz", s.handleReadyz)
-	s.mux.HandleFunc("/metrics", s.handleMetrics)
-	s.mux.HandleFunc("/", s.handleIndex)
+	s.route("/api/v1/diagnoses", s.handleDiagnoses)
+	s.route("/api/v1/diagnoses/", s.handleDiagnosis)
+	s.route("/api/v1/targets", s.handleTargets)
+	s.route("/api/v1/topologies", s.handleTopologies)
+	s.route("/api/v1/packs", s.handlePacks)
+	s.route("/healthz", s.handleHealthz)
+	s.route("/readyz", s.handleReadyz)
+	s.route("/metrics", s.handleMetrics)
+	// The console is registered whether or not it is enabled: a disabled
+	// console answers with the reason and the key that changes it, which a
+	// missing route could not do.
+	s.route("/ui", s.handleConsoleRedirect)
+	s.route(consolePrefix, s.handleConsole)
+	s.route("/", s.handleIndex)
 }
 
 // errorBody is the wire form of a failure: always a code, so a client can react
@@ -409,10 +423,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name": "mas-turbo", "version": version.Get().Version,
 		"description": "Read-only diagnostic multi-agent system for open-source middleware",
+		// The server's own presentation choice, which the index did not
+		// previously state. The console reads it to match the operator's
+		// configured language without asking them a second time
+		// (specs/012-web-console/design-lld.md §8).
+		"language": s.svc.Config().Run.Language,
 		"endpoints": []string{
 			"POST /api/v1/diagnoses", "GET /api/v1/diagnoses", "GET /api/v1/diagnoses/{id}",
 			"GET /api/v1/targets", "GET /api/v1/topologies", "GET /api/v1/packs",
-			"GET /healthz", "GET /readyz", "GET /metrics",
+			"GET /healthz", "GET /readyz", "GET /metrics", "GET /ui/",
 		},
 	})
 }

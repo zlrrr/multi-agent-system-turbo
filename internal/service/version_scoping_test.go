@@ -459,3 +459,43 @@ func TestDoctorReportsTenancy(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorReportsTheConsole is FR-015 of feature 012. "Is the console on" is
+// asked in the same breath as "is the API authenticated", so it is answered in
+// the same place — and it is graded OK either way, because a deployment that
+// switched it off made a deliberate choice, and a deliberate choice is not a
+// defect.
+func TestDoctorReportsTheConsole(t *testing.T) {
+	find := func(results []service.CheckResult) service.CheckResult {
+		t.Helper()
+		for _, r := range results {
+			if r.Name == "web console" {
+				return r
+			}
+		}
+		t.Fatal("mas doctor does not report the web console")
+		return service.CheckResult{}
+	}
+
+	svc := newService(t, newStubs(t, 0.5, false), nil)
+	got := find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckOK {
+		t.Errorf("a served console graded %v", got.Status)
+	}
+	if !strings.Contains(got.Detail, "/ui/") {
+		t.Errorf("the detail does not say where the console is: %q", got.Detail)
+	}
+
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		off := false
+		cfg.Server.UI.Enabled = &off
+	})
+	got = find(svc.Doctor(context.Background()))
+	if got.Status != service.CheckOK {
+		t.Errorf("a deliberately disabled console graded %v; a configuration "+
+			"someone chose is not a defect", got.Status)
+	}
+	if !strings.Contains(got.Detail, "server.ui.enabled") {
+		t.Errorf("the detail does not name the key in force: %q", got.Detail)
+	}
+}

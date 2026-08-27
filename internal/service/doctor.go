@@ -80,6 +80,20 @@ func describeTenancy(cfg *config.Config) string {
 	return out
 }
 
+// describeConsole says whether the web console is served.
+//
+// It is graded OK either way: a deployment that switched it off made a
+// deliberate choice, and a deliberate choice is not a defect. What the operator
+// needs is to know which one is in force without opening the file
+// (specs/012-web-console/design-lld.md §9).
+func describeConsole(cfg *config.Config) string {
+	if !cfg.Server.UI.On() {
+		return "not served: `server.ui.enabled` is false; the API is unaffected"
+	}
+	return "served at /ui/ by `mas serve`; static assets only, and every value " +
+		"it shows is read through the authorised API"
+}
+
 // apiExposureStatus grades the API's configuration.
 //
 // A configuration `httpapi.Admit` would refuse is a **warning** here, not a
@@ -219,6 +233,9 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 
 	t0 = time.Now()
 	add("tenancy", CheckOK, describeTenancy(s.cfg), nil, t0)
+
+	t0 = time.Now()
+	add("web console", CheckOK, describeConsole(s.cfg), nil, t0)
 
 	t0 = time.Now()
 	if s.library.Len() == 0 {
