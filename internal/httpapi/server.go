@@ -207,9 +207,16 @@ func (s *Server) createDiagnosis(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
-	// From the authenticated caller, never from the body: a client-supplied
-	// principal is an attribution anyone can forge.
-	req.Principal = PrincipalFrom(r.Context()).Name
+	// From the authenticated caller and from configuration, never from the
+	// body: a client-supplied principal or tenant is an attribution anyone can
+	// forge.
+	principal := PrincipalFrom(r.Context())
+	req.Principal = principal.Name
+	if !s.MayReach(principal, req.Target) {
+		s.refuseAsUnknown(w, r, principal.Name, req.Target)
+		return
+	}
+	req.Tenant = s.tenantFor(req.Target)
 	// Admission runs before anything is created, so a malformed request never
 	// leaves a half-formed run behind.
 	admitted, err := s.svc.Admit(req)
@@ -268,6 +275,7 @@ func (s *Server) listDiagnoses(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, statusFor(err), err)
 		return
 	}
+	runs = s.reachableRuns(PrincipalFrom(r.Context()), runs)
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "count": len(runs)})
 }
 
@@ -286,6 +294,11 @@ func (s *Server) handleDiagnosis(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, statusFor(err), err)
 		return
 	}
+	principal := PrincipalFrom(r.Context())
+	if !s.mayReadRun(principal, rec) {
+		s.refuseAsUnknown(w, r, principal.Name, id)
+		return
+	}
 	if r.URL.Query().Get("steps") == "true" {
 		writeJSON(w, http.StatusOK, rec)
 		return
@@ -296,6 +309,7 @@ func (s *Server) handleDiagnosis(w http.ResponseWriter, r *http.Request) {
 		// Who asked belongs in the default projection, not behind ?steps=true:
 		// it is the first thing a cost or access review looks for.
 		"principal": rec.Principal,
+		"tenant":    rec.Tenant,
 		"report":    rec.Report,
 	})
 }
@@ -305,7 +319,8 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusMethodNotAllowed, errs.New("MAS-7002", r.Method, r.URL.Path))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"targets": s.svc.Config().Targets})
+	targets := s.reachableTargets(PrincipalFrom(r.Context()), s.svc.Config().Targets)
+	writeJSON(w, http.StatusOK, map[string]any{"targets": targets})
 }
 
 func (s *Server) handleTopologies(w http.ResponseWriter, r *http.Request) {

@@ -23,21 +23,21 @@ Every test named here must exist: `sddctl verify` checks it.
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| TB01 | `Principal.Tenants` and `MayReach`, the one place tenancy is decided | FR-010, CON-002 | `TestTenancyIsEnforcedInOnePlace` | G-A | todo |
-| TB02 | Diagnosing another tenant's target is refused | FR-005 | `TestDiagnosingAnotherTenantIsRefused` | TB01 | todo |
-| TB03 | The refusal is indistinguishable from an unknown target | FR-009, CON-003 | `TestCrossTenantRefusalRevealsNothing` | TB02 | todo |
-| TB04 | Target listing is tenant-scoped | FR-006 | `TestTargetListingIsTenantScoped` | TB01 | todo |
-| TB05 | Run listing and reading are tenant-scoped | FR-007 | `TestRunAccessIsTenantScoped` | TB01 | todo |
-| **G-B** | **Gate B** | | `go test ./internal/httpapi/...` | | todo |
+| TB01 | `Principal.Tenants` and `MayReach`, the one place tenancy is decided | FR-010, CON-002 | `TestTenancyIsEnforcedInOnePlace` | G-A | done |
+| TB02 | Diagnosing another tenant's target is refused | FR-005 | `TestDiagnosingAnotherTenantIsRefused` | TB01 | done |
+| TB03 | The refusal is indistinguishable from an unknown target | FR-009, CON-003 | `TestCrossTenantRefusalRevealsNothing` | TB02 | done |
+| TB04 | Target listing is tenant-scoped | FR-006 | `TestTargetListingIsTenantScoped` | TB01 | done |
+| TB05 | Run listing and reading are tenant-scoped | FR-007 | `TestRunAccessIsTenantScoped` | TB01 | done |
+| **G-B** | **Gate B** | | `go test ./internal/httpapi/...` | | done |
 
 ## Phase C — attribution and documentation
 
 | ID | Task | Satisfies | Test / checkpoint | Deps | Status |
 |---|---|---|---|---|---|
-| TC01 | The tenant is recorded on the run at admission | FR-008 | `TestRunRecordCarriesTheTenant` | G-B | todo |
-| TC02 | `mas doctor` reports tenancy and each credential's reach | FR-011 | `TestDoctorReportsTenancy` | TC01 | todo |
-| TC03 | Bilingual documentation: configuration reference, manual, README | NFR-002, NFR-001 | `sddctl verify` parity; `go.mod` unchanged | TC02 | todo |
-| **G-C** | **Gate C — feature exit** | | `make ci` green; `make demo` unchanged | | todo |
+| TC01 | The tenant is recorded on the run at admission | FR-008 | `TestRunRecordCarriesTheTenant` | G-B | done |
+| TC02 | `mas doctor` reports tenancy and each credential's reach | FR-011 | `TestDoctorReportsTenancy` | TC01 | done |
+| TC03 | Bilingual documentation: configuration reference, manual, README | NFR-002, NFR-001 | `sddctl verify` parity; `go.mod` unchanged | TC02 | done |
+| **G-C** | **Gate C — feature exit** | | `make ci` green; `make demo` unchanged | | done |
 
 ## Checkpoint gates
 

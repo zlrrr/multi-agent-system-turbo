@@ -318,3 +318,13 @@ func TestRunRecordCarriesThePrincipal(t *testing.T) {
 		t.Errorf("the run record says the caller was %q, want oncall", record.Principal)
 	}
 }
+
+// readSource returns a file in this package, for the structural tests.
+func readSource(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}

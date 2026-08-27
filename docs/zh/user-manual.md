@@ -402,6 +402,36 @@ curl -s https://mas.internal/api/v1/targets -H "Authorization: Bearer $TOKEN"
 
 `/healthz` 与 `/readyz` 保持匿名。`/metrics` 不是：它携带目标名与运行次数。
 
+### 服务多个团队
+
+一个可以做诊断的凭据，可以诊断任何已配置的目标 —— 除非你另有说明。
+在目标上写下 `tenant`，就把这片资产分区了：
+
+```yaml
+targets:
+  - { id: payments-redis, kind: redis, tenant: payments }
+  - { id: search-kafka,   kind: kafka, tenant: search }
+
+server:
+  auth:
+    tokens:
+      - name: payments-oncall
+        token: "${env:PAYMENTS_TOKEN}"
+        scopes: [read, diagnose]
+        tenants: [payments]
+```
+
+这里没有开关：只要有任何一个目标写下了 tenant，这份配置就是多租户的，
+此后每个目标都需要 tenant，每个凭据也都需要写明它能代表哪些租户。
+一个没有写任何 tenant 的部署丝毫未变。
+
+别人的目标与别人的运行记录都会返回 `404` ——
+与一个从未被配置过的 id 相同，因为确认它存在，泄露的是邻居的信息而不是调用者的。
+各类列举只显示你可见的内容，且每次运行都会记录它属于哪个租户。
+
+`mas doctor` 会说明租户是否开启、每个凭据能触达什么；
+完整规则见[配置说明](./configuration.md)。
+
 ## 11. 审计与重放
 
 每次运行都会被持久化：请求、每一次工具调用及其参数与脱敏后的结果、每一次模型交互，以及
@@ -546,8 +576,6 @@ envs:
 如实说明范围，方便你据此规划：
 
 - **Web UI** —— 当前只有 CLI 与 API。
-- **按目标授权** —— 一个可以做诊断的凭据，可以诊断任何已配置的目标。
-  要拆开这一点需要一套租户模型，而它尚未提供。
 - **限流** —— 一次运行的预算限定了单次调用能花多少，
   但没有任何东西限定"来了多少次调用"。
 

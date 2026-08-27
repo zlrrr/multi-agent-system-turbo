@@ -533,8 +533,11 @@ type RunRecord struct {
 
 // RunSummary is the listing projection of a run.
 type RunSummary struct {
-	ID         string    `json:"id"`
-	Status     RunStatus `json:"status"`
+	ID     string    `json:"id"`
+	Status RunStatus `json:"status"`
+	// Tenant is carried into the summary so a listing can be filtered without
+	// reading every record back.
+	Tenant     string    `json:"tenant,omitempty"`
 	Target     string    `json:"target"`
 	Symptom    string    `json:"symptom"`
 	Topology   string    `json:"topology"`
@@ -546,7 +549,8 @@ type RunSummary struct {
 // Summarise projects a run record into its listing form.
 func (r *RunRecord) Summarise() RunSummary {
 	s := RunSummary{
-		ID: r.ID, Status: r.Status, Target: r.Request.Target, Symptom: r.Request.Symptom,
+		ID: r.ID, Status: r.Status, Tenant: r.Tenant,
+		Target: r.Request.Target, Symptom: r.Request.Symptom,
 		Topology: r.Request.Topology, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
 	}
 	if r.Report != nil {

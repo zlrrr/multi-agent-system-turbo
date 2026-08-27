@@ -444,6 +444,37 @@ never the credential. Every run records who asked for it, and that appears in
 `/healthz` and `/readyz` stay anonymous. `/metrics` does not: it carries target
 names and run counts.
 
+### Serving several teams
+
+A credential that may diagnose may diagnose any configured target — unless you
+say otherwise. Naming a `tenant` on a target partitions the estate:
+
+```yaml
+targets:
+  - { id: payments-redis, kind: redis, tenant: payments }
+  - { id: search-kafka,   kind: kafka, tenant: search }
+
+server:
+  auth:
+    tokens:
+      - name: payments-oncall
+        token: "${env:PAYMENTS_TOKEN}"
+        scopes: [read, diagnose]
+        tenants: [payments]
+```
+
+There is no flag: the configuration is multi-tenant the moment any target names
+a tenant, and from then on every target needs one and every credential needs the
+tenants it may act for. A deployment that names none is untouched.
+
+Another tenant's target and another tenant's run both come back `404` — the same
+as an id that was never configured, because confirming it exists is the
+neighbour's information rather than the caller's. Listings show only what you
+may see, and each run records the tenant it was for.
+
+`mas doctor` says whether tenancy is on and what each credential reaches; see
+[configuration](./configuration.md) for the rules in full.
+
 ## 11. Auditing and replaying a run
 
 Every run is persisted: the request, every tool call with its arguments and
@@ -595,9 +626,6 @@ switch someone deliberately set.
 Honest scope, so you can plan around it:
 
 - **A web UI** — CLI and API only for now.
-- **Per-target authorisation** — a credential that may diagnose may diagnose
-  any configured target. Splitting that needs a tenancy model, which is not
-  here yet.
 - **Rate limiting** — a run's budget bounds what one call can spend, but
   nothing bounds how many calls arrive.
 

@@ -23,21 +23,21 @@
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| TB01 | `Principal.Tenants` 与 `MayReach` —— 租户判定的唯一场所 | FR-010、CON-002 | `TestTenancyIsEnforcedInOnePlace` | G-A | todo |
-| TB02 | 对其他租户目标发起诊断会被拒绝 | FR-005 | `TestDiagnosingAnotherTenantIsRefused` | TB01 | todo |
-| TB03 | 该拒绝与"未知目标"不可区分 | FR-009、CON-003 | `TestCrossTenantRefusalRevealsNothing` | TB02 | todo |
-| TB04 | 目标列举按租户限定 | FR-006 | `TestTargetListingIsTenantScoped` | TB01 | todo |
-| TB05 | 运行记录的列举与读取按租户限定 | FR-007 | `TestRunAccessIsTenantScoped` | TB01 | todo |
-| **G-B** | **闸门 B** | | `go test ./internal/httpapi/...` | | todo |
+| TB01 | `Principal.Tenants` 与 `MayReach` —— 租户判定的唯一场所 | FR-010、CON-002 | `TestTenancyIsEnforcedInOnePlace` | G-A | done |
+| TB02 | 对其他租户目标发起诊断会被拒绝 | FR-005 | `TestDiagnosingAnotherTenantIsRefused` | TB01 | done |
+| TB03 | 该拒绝与"未知目标"不可区分 | FR-009、CON-003 | `TestCrossTenantRefusalRevealsNothing` | TB02 | done |
+| TB04 | 目标列举按租户限定 | FR-006 | `TestTargetListingIsTenantScoped` | TB01 | done |
+| TB05 | 运行记录的列举与读取按租户限定 | FR-007 | `TestRunAccessIsTenantScoped` | TB01 | done |
+| **G-B** | **闸门 B** | | `go test ./internal/httpapi/...` | | done |
 
 ## 阶段 C —— 归属与文档
 
 | ID | 任务 | 满足需求 | 测试 / 检查点 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| TC01 | 在准入阶段把租户记录到运行上 | FR-008 | `TestRunRecordCarriesTheTenant` | G-B | todo |
-| TC02 | `mas doctor` 报告租户状态与每个凭据的触达范围 | FR-011 | `TestDoctorReportsTenancy` | TC01 | todo |
-| TC03 | 双语文档：配置参考、用户手册、README | NFR-002、NFR-001 | `sddctl verify` 对等检查；`go.mod` 未变 | TC02 | todo |
-| **G-C** | **闸门 C —— 特性出口** | | `make ci` 全绿；`make demo` 行为不变 | | todo |
+| TC01 | 在准入阶段把租户记录到运行上 | FR-008 | `TestRunRecordCarriesTheTenant` | G-B | done |
+| TC02 | `mas doctor` 报告租户状态与每个凭据的触达范围 | FR-011 | `TestDoctorReportsTenancy` | TC01 | done |
+| TC03 | 双语文档：配置参考、用户手册、README | NFR-002、NFR-001 | `sddctl verify` 对等检查；`go.mod` 未变 | TC02 | done |
+| **G-C** | **闸门 C —— 特性出口** | | `make ci` 全绿；`make demo` 行为不变 | | done |
 
 ## 检查点闸门
 

@@ -237,6 +237,7 @@ func (s *Service) Diagnose(ctx context.Context, req core.DiagnoseRequest) (*core
 	rec := &core.RunRecord{
 		ID: runID, Status: core.RunRunning, Request: req, Target: target,
 		Principal: req.Principal,
+		Tenant:    req.Tenant,
 		StartedAt: started.UTC(),
 		Versions: map[string]string{
 			"binary": version.Get().Version, "topology": req.Topology,

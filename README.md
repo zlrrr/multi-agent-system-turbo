@@ -103,10 +103,10 @@ request ─▶ admission ─▶ ┌─ deterministic playbooks ─┐─▶ repo
 | **Source** | Network repository with automatic fallback to a local mirror, plus code search |
 | **Models** | Anthropic, any OpenAI-compatible endpoint, and a deterministic mock — routable per agent role, with cost reported per role when you supply prices |
 | **Topologies** | `supervisor` (default), `single` (control condition), `plan-execute` (adaptive), `debate` (adversarial), `blackboard` (data-driven) |
-| **Interfaces** | CLI, HTTP API (bearer tokens with `read`/`diagnose` scopes; refuses to bind off-host without them), container image |
+| **Interfaces** | CLI, HTTP API (bearer tokens with `read`/`diagnose` scopes and optional per-tenant partitioning; refuses to bind off-host without credentials), container image |
 | **Run store** | Filesystem, in-memory, or any S3-compatible bucket — shared by every replica, with each step an immutable object |
 
-Deliberately not here yet: a web UI, per-target authorisation, rate limiting.
+Deliberately not here yet: a web UI, rate limiting, per-tenant budgets.
 The [user manual](./docs/en/user-manual.md#14-what-is-deliberately-not-here-yet)
 says so plainly so you can plan around it.
 

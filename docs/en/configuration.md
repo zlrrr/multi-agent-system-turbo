@@ -378,6 +378,69 @@ A token with no scopes, or a scope this build does not recognise, fails at load
 `/healthz` and `/readyz` never require a credential: a liveness probe that needs
 one is a liveness probe that fails during a credential problem.
 
+### Tenants — serving several teams from one deployment
+
+By default a credential that may diagnose may diagnose **any** configured
+target. That is fine for one team looking after its own estate, and wrong when
+the estate is not one team's.
+
+Naming a `tenant` on a target says which slice of the estate it belongs to:
+
+```yaml
+targets:
+  - id: payments-redis
+    kind: redis
+    tenant: payments
+  - id: search-kafka
+    kind: kafka
+    tenant: search
+
+server:
+  auth:
+    tokens:
+      - name: payments-oncall
+        token: "${env:PAYMENTS_TOKEN}"
+        scopes: [read, diagnose]
+        tenants: [payments]
+      - name: platform
+        token: "${env:PLATFORM_TOKEN}"
+        scopes: [read]
+        tenants: [payments, search]
+```
+
+**There is no flag.** A configuration is multi-tenant the moment any target
+names a tenant, and the rest follows at load:
+
+| Configuration | Result |
+|---|---|
+| No target names a tenant | Tenancy off; nothing to configure and nothing changes |
+| Some targets name one, some do not | Refused (`MAS-1013`). A target belonging to nobody is one everyone or no one can reach |
+| A credential names no tenants | Refused. In a partitioned deployment that is a superuser nobody declared |
+| A credential names a tenant no target declares | Refused |
+| A credential names tenants but nothing is tenanted | Refused — the restriction would be silently ignored, which is the exact shape of a control that looks applied and is not |
+
+A flag would let a partitioned deployment run unpartitioned, which is the one
+failure this arrangement makes impossible.
+
+**What enforcement looks like.** Starting a diagnosis on someone else's target,
+and reading someone else's run, both come back **`404`** — identical to an id
+that was never configured. A `403` naming the target would confirm it exists,
+which is the neighbour's information rather than the caller's, and it leaks once
+per guessed id. Target and run listings are filtered to what the caller may see.
+
+Each run records the tenant it was for, beside who asked. It is written when the
+run happens rather than derived later: reading the target's tenant at query time
+answers *which tenant owns it now*, and audits ask about the past.
+
+`mas doctor` reports whether tenancy is on and what each credential reaches, by
+name and never by credential — a filtered listing looks exactly like an empty
+estate, so the answer is one command away.
+
+Deliberately not here: per-tenant models, budgets, packs or telemetry sources;
+tenant-scoped storage; hierarchies, groups or delegation; and quotas. Tenancy
+also does not apply to the CLI, which runs as the operator with the operator's
+own file — every target in it is already theirs.
+
 ## `safety`
 
 | Key | Default | Meaning |

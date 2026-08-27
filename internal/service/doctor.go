@@ -57,6 +57,29 @@ func (s *Service) probeRunStore(ctx context.Context,
 	add("run store", CheckOK, where+" reachable; shared by every replica", nil, t0)
 }
 
+// describeTenancy says whether the estate is partitioned and, if so, what each
+// credential can reach.
+//
+// It says so even when tenancy is off, because "no tenants configured" is
+// exactly what an operator debugging an unfiltered listing needs to see, and
+// inferring it from an absence is how people conclude the wrong thing.
+func describeTenancy(cfg *config.Config) string {
+	tenants := cfg.Tenants()
+	if len(tenants) == 0 {
+		return "off: no target names a tenant, so every credential reaches every target"
+	}
+
+	reach := make([]string, 0, len(cfg.Server.Auth.Tokens))
+	for _, t := range cfg.Server.Auth.Tokens {
+		reach = append(reach, t.Name+" → "+strings.Join(t.Tenants, "+"))
+	}
+	out := fmt.Sprintf("on: %d tenant(s) %v", len(tenants), tenants)
+	if len(reach) > 0 {
+		out += "; " + strings.Join(reach, ", ")
+	}
+	return out
+}
+
 // apiExposureStatus grades the API's configuration.
 //
 // A configuration `httpapi.Admit` would refuse is a **warning** here, not a
@@ -193,6 +216,9 @@ func (s *Service) Doctor(ctx context.Context) []CheckResult {
 
 	t0 = time.Now()
 	s.probeRunStore(ctx, add, t0)
+
+	t0 = time.Now()
+	add("tenancy", CheckOK, describeTenancy(s.cfg), nil, t0)
 
 	t0 = time.Now()
 	if s.library.Len() == 0 {

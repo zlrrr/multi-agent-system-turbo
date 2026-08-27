@@ -1,6 +1,6 @@
 # Project Goals — multi-agent-system-turbo (MAS-Turbo)
 
-> **Version**: 1.2.1 · **Status**: approved · **Date**: 2026-08-26
+> **Version**: 1.2.2 · **Status**: approved · **Date**: 2026-08-27
 > **Bilingual pair**: [`../zh/project-goals.md`](../zh/project-goals.md)
 > **Governed by**: [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.0
 > **Downstream**: `specs/001-*/spec.md`, `specs/002-*/spec.md`, …
@@ -205,7 +205,7 @@ disconnected parts.
 |---|---|---|---|
 | P3-1 | AuthN/AuthZ on the HTTP API | — | Delivered (`specs/009-api-authentication`): bearer tokens with `read`/`diagnose` scopes, a refusal to bind off-host without them, and the principal recorded on the run |
 | P3-2 | Durable run store (beyond filesystem) | G1.4 | Delivered (`specs/010-object-run-store`): any S3-compatible bucket, shared by every replica, with each step an immutable object and an interrupted run still readable |
-| P3-3 | Multi-tenant target registry | — | — |
+| P3-3 | Multi-tenant target registry | — | Delivered (`specs/011-tenant-registry`): a tenant on a target and on a credential, enforced at one choke point, with a cross-tenant target refused as if it did not exist |
 | P3-4 | Web UI | NG-6 lifted | — |
 
 ## 6. Milestone exit criteria
@@ -232,6 +232,7 @@ disconnected parts.
 
 | Version | Date | Amendment | Rationale | Cascaded to |
 |---|---|---|---|---|
+| 1.2.2 | 2026-08-27 | M4's P3-3 recorded as delivered, closing the gap feature 009 named when it shipped: a credential that may diagnose no longer reaches every target. Tenancy turns itself on from the configuration rather than a flag, so a partitioned deployment cannot run unpartitioned, and a single-team one never encounters it | Backlog reflects delivered scope; no goal changed | `specs/011-tenant-registry/` |
 | 1.2.1 | 2026-08-26 | M4's P3-2 recorded as delivered: run records can live in an S3-compatible bucket rather than one machine's disk, so replicas agree about history and a pod restart does not erase it. SigV4 is implemented from the specification and proven against its published vectors, keeping `go.mod` unchanged | Backlog reflects delivered scope; no goal changed | `specs/010-object-run-store/` |
 | 1.2.0 | 2026-08-26 | M4's P3-1 recorded as delivered: the API authenticates, authorises per route by scope, and records who asked on the run it caused. The requirement attaches to the bind address rather than a flag, so a loopback developer workflow is unchanged and an exposed one cannot be unauthenticated by omission | Backlog reflects delivered scope; no goal changed | `specs/009-api-authentication/` |
 | 1.1.9 | 2026-08-26 | M3's exit note reconciled: it said the milestone's backlog was still open, which stopped being true when P2-2 and P2-4 landed. Recorded because a status line that is stale is worse than one that is absent — it is read as current | Status only; no goal or backlog changed | `docs/en/project-goals.md` |

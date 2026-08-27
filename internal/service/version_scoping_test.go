@@ -411,3 +411,51 @@ func TestDoctorProbesTheObjectStore(t *testing.T) {
 		t.Errorf("the memory store was reported as %q: %s", got.Status, got.Detail)
 	}
 }
+
+// TestDoctorReportsTenancy is FR-011 of feature 011. A filtered listing looks
+// exactly like an empty estate, so the answer has to be one command away.
+func TestDoctorReportsTenancy(t *testing.T) {
+	find := func(results []service.CheckResult) service.CheckResult {
+		t.Helper()
+		for _, r := range results {
+			if r.Name == "tenancy" {
+				return r
+			}
+		}
+		t.Fatal("mas doctor does not report tenancy")
+		return service.CheckResult{}
+	}
+
+	// Off is reported too: inferring it from an absence is how people conclude
+	// the wrong thing about why a listing is not filtered.
+	svc := newService(t, newStubs(t, 0.5, false), nil)
+	got := find(svc.Doctor(context.Background()))
+	if !strings.Contains(got.Detail, "off") {
+		t.Errorf("tenancy off was not reported as such: %q", got.Detail)
+	}
+
+	// On, with each credential's reach by name — never a credential.
+	svc = newService(t, newStubs(t, 0.5, false), func(cfg *config.Config) {
+		cfg.Targets = []config.TargetConfig{
+			{ID: "payments-redis", Kind: "redis", Tenant: "payments"},
+			{ID: "search-redis", Kind: "redis", Tenant: "search"},
+		}
+		cfg.Server.Auth = config.ServerAuth{Tokens: []config.APIToken{
+			{Name: "payments-oncall", Token: "s3cret-payments",
+				Scopes: []string{"read"}, Tenants: []string{"payments"}},
+			{Name: "platform", Token: "s3cret-platform",
+				Scopes: []string{"read"}, Tenants: []string{"payments", "search"}},
+		}}
+	})
+	got = find(svc.Doctor(context.Background()))
+	for _, want := range []string{"on", "payments", "search", "payments-oncall", "platform"} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("the detail does not mention %s: %q", want, got.Detail)
+		}
+	}
+	for _, banned := range []string{"s3cret-payments", "s3cret-platform"} {
+		if strings.Contains(got.Detail, banned) {
+			t.Errorf("mas doctor printed a credential: %q", got.Detail)
+		}
+	}
+}
