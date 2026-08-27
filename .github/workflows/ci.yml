@@ -45,6 +45,13 @@ jobs:
           version: latest
           args: --timeout=5m
 
+      # The web console has no build step and no package manifest
+      # (specs/012-web-console, NFR-001), so without this nothing would notice
+      # a syntax error before a reader's browser did. `--check` parses without
+      # executing; node is preinstalled on this runner.
+      - name: Parse the web console script
+        run: node --check internal/httpapi/assets/app.js
+
   sdd:
     name: Specification checks
     runs-on: ubuntu-latest
@@ -243,6 +250,29 @@ jobs:
             exit 1
           fi
           echo "image runs as uid $uid"
+
+      # The console ships inside the binary via //go:embed. Nothing else would
+      # notice if an asset stopped being embedded, because a missing file is a
+      # build error only when the embed directive names it — and this proves
+      # the shipped image, not the test binary, actually serves it.
+      - name: The image must serve the web console
+        run: |
+          docker run --rm -d --name mas-console -p 18080:8080 mas-turbo:ci \
+            serve --addr 0.0.0.0:8080
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:18080/healthz && break
+            sleep 1
+          done
+          shell=$(curl -sf http://127.0.0.1:18080/ui/)
+          strings=$(curl -sf 'http://127.0.0.1:18080/ui/strings.json?lang=zh')
+          script=$(curl -sf http://127.0.0.1:18080/ui/app.js)
+          csp=$(curl -sfD - -o /dev/null http://127.0.0.1:18080/ui/ | grep -i 'content-security-policy')
+          docker rm -f mas-console >/dev/null
+          echo "$shell" | grep -q '<!DOCTYPE html>' || { echo "the shell was not served"; exit 1; }
+          echo "$strings" | grep -q 'MAS-Turbo 控制台' || { echo "the string table was not served"; exit 1; }
+          echo "$script" | grep -q 'textContent' || { echo "the script was not served"; exit 1; }
+          echo "$csp" | grep -q "default-src 'none'" || { echo "no deny-by-default CSP"; exit 1; }
+          echo "the image serves the console"
 
       - name: Image size gate
         run: |
